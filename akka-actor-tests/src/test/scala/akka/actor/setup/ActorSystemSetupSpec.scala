@@ -1,6 +1,7 @@
 /*
- * Copyright (C) 2016-2017 Lightbend Inc. <http://www.lightbend.com>
+ * Copyright (C) 2016-2019 Lightbend Inc. <https://www.lightbend.com>
  */
+
 package akka.actor.setup
 
 import akka.actor.ActorSystem
@@ -17,8 +18,7 @@ class ActorSystemSetupSpec extends WordSpec with Matchers {
 
     "store and retrieve a setup" in {
       val setup = DummySetup("Al Dente")
-      val setups = ActorSystemSetup()
-        .withSetup(setup)
+      val setups = ActorSystemSetup().withSetup(setup)
 
       setups.get[DummySetup] should ===(Some(setup))
       setups.get[DummySetup2] should ===(None)
@@ -27,9 +27,7 @@ class ActorSystemSetupSpec extends WordSpec with Matchers {
     "replace setup if already defined" in {
       val setup1 = DummySetup("Al Dente")
       val setup2 = DummySetup("Earl E. Bird")
-      val setups = ActorSystemSetup()
-        .withSetup(setup1)
-        .withSetup(setup2)
+      val setups = ActorSystemSetup().withSetup(setup1).withSetup(setup2)
 
       setups.get[DummySetup] should ===(Some(setup2))
     }
@@ -60,10 +58,7 @@ class ActorSystemSetupSpec extends WordSpec with Matchers {
         val setup = DummySetup("Tad Moore")
         system = ActorSystem("name", ActorSystemSetup(setup))
 
-        system
-          .settings
-          .setup
-          .get[DummySetup] should ===(Some(setup))
+        system.settings.setup.get[DummySetup] should ===(Some(setup))
 
       } finally {
         TestKit.shutdownActorSystem(system)

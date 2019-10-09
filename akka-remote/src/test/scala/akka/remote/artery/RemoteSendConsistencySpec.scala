@@ -1,25 +1,61 @@
-/**
- * Copyright (C) 2016-2017 Lightbend Inc. <http://www.lightbend.com>
+/*
+ * Copyright (C) 2016-2019 Lightbend Inc. <https://www.lightbend.com>
  */
+
 package akka.remote.artery
 
-import akka.actor.{ Actor, ActorIdentity, ActorRef, ActorSystem, Deploy, Identify, PoisonPill, Props, RootActorPath }
-import akka.remote.RARP
-import akka.testkit.{ AkkaSpec, ImplicitSender, TestActors, TestProbe }
+import akka.actor.{ Actor, ActorIdentity, ActorRef, Deploy, Identify, PoisonPill, Props, RootActorPath }
+import akka.testkit.{ ImplicitSender, TestActors, TestProbe }
 import com.typesafe.config.{ Config, ConfigFactory }
 
 import scala.concurrent.duration._
 import akka.actor.ActorSelection
 
-class RemoteSendConsistencySpec extends AbstractRemoteSendConsistencySpec(ArterySpecSupport.defaultConfig)
+class ArteryUpdSendConsistencyWithOneLaneSpec
+    extends AbstractRemoteSendConsistencySpec(ConfigFactory.parseString("""
+      akka.remote.artery.transport = aeron-udp
+      akka.remote.artery.advanced.outbound-lanes = 1
+      akka.remote.artery.advanced.inbound-lanes = 1
+    """).withFallback(ArterySpecSupport.defaultConfig))
 
-class RemoteSendConsistencyWithThreeLanesSpec extends AbstractRemoteSendConsistencySpec(
-  ConfigFactory.parseString("""
+class ArteryUpdSendConsistencyWithThreeLanesSpec
+    extends AbstractRemoteSendConsistencySpec(ConfigFactory.parseString("""
+      akka.remote.artery.transport = aeron-udp
       akka.remote.artery.advanced.outbound-lanes = 3
       akka.remote.artery.advanced.inbound-lanes = 3
     """).withFallback(ArterySpecSupport.defaultConfig))
 
-abstract class AbstractRemoteSendConsistencySpec(config: Config) extends ArteryMultiNodeSpec(config) with ImplicitSender {
+class ArteryTcpSendConsistencyWithOneLaneSpec
+    extends AbstractRemoteSendConsistencySpec(ConfigFactory.parseString("""
+      akka.remote.artery.transport = tcp
+      akka.remote.artery.advanced.outbound-lanes = 1
+      akka.remote.artery.advanced.inbound-lanes = 1
+    """).withFallback(ArterySpecSupport.defaultConfig))
+
+class ArteryTcpSendConsistencyWithThreeLanesSpec
+    extends AbstractRemoteSendConsistencySpec(ConfigFactory.parseString("""
+      akka.remote.artery.transport = tcp
+      akka.remote.artery.advanced.outbound-lanes = 3
+      akka.remote.artery.advanced.inbound-lanes = 3
+    """).withFallback(ArterySpecSupport.defaultConfig))
+
+class ArteryTlsTcpSendConsistencyWithOneLaneSpec
+    extends AbstractRemoteSendConsistencySpec(ConfigFactory.parseString("""
+      akka.remote.artery.transport = tls-tcp
+      akka.remote.artery.advanced.outbound-lanes = 1
+      akka.remote.artery.advanced.inbound-lanes = 1
+    """).withFallback(ArterySpecSupport.defaultConfig))
+
+class ArteryTlsTcpSendConsistencyWithThreeLanesSpec
+    extends AbstractRemoteSendConsistencySpec(ConfigFactory.parseString("""
+      akka.remote.artery.transport = tls-tcp
+      akka.remote.artery.advanced.outbound-lanes = 1
+      akka.remote.artery.advanced.inbound-lanes = 1
+    """).withFallback(ArterySpecSupport.defaultConfig))
+
+abstract class AbstractRemoteSendConsistencySpec(config: Config)
+    extends ArteryMultiNodeSpec(config)
+    with ImplicitSender {
 
   val systemB = newRemoteSystem(name = Some("systemB"))
   val addressB = address(systemB)
@@ -28,9 +64,9 @@ abstract class AbstractRemoteSendConsistencySpec(config: Config) extends ArteryM
   "Artery" must {
 
     "be able to identify a remote actor and ping it" in {
-      val actorOnSystemB = systemB.actorOf(Props(new Actor {
+      systemB.actorOf(Props(new Actor {
         def receive = {
-          case "ping" ⇒ sender() ! "pong"
+          case "ping" => sender() ! "pong"
         }
       }), "echo")
 
@@ -66,7 +102,7 @@ abstract class AbstractRemoteSendConsistencySpec(config: Config) extends ArteryM
       val probe = TestProbe()(systemB)
       probe.watch(echo)
       probe.expectTerminated(echo)
-      expectNoMsg(1.second)
+      expectNoMessage(1.second)
 
       val echo2 = systemB.actorOf(TestActors.echoActorProps, "otherEcho1")
       echo2 ! 73
@@ -74,7 +110,7 @@ abstract class AbstractRemoteSendConsistencySpec(config: Config) extends ArteryM
       // msg to old ActorRef (different uid) should not get through
       echo2.path.uid should not be (echo.path.uid)
       echo ! 74
-      expectNoMsg(1.second)
+      expectNoMessage(1.second)
     }
 
     "be able to send messages concurrently preserving order" in {
@@ -95,22 +131,23 @@ abstract class AbstractRemoteSendConsistencySpec(config: Config) extends ArteryM
         expectMsgType[ActorIdentity].ref.get
       }
 
-      def senderProps(remoteRef: ActorRef) = Props(new Actor {
-        var counter = 1000
-        remoteRef ! counter
+      def senderProps(remoteRef: ActorRef) =
+        Props(new Actor {
+          var counter = 1000
+          remoteRef ! counter
 
-        override def receive: Receive = {
-          case i: Int ⇒
-            if (i != counter) testActor ! s"Failed, expected $counter got $i"
-            else if (counter == 0) {
-              testActor ! "success"
-              context.stop(self)
-            } else {
-              counter -= 1
-              remoteRef ! counter
-            }
-        }
-      }).withDeploy(Deploy.local)
+          override def receive: Receive = {
+            case i: Int =>
+              if (i != counter) testActor ! s"Failed, expected $counter got $i"
+              else if (counter == 0) {
+                testActor ! "success"
+                context.stop(self)
+              } else {
+                counter -= 1
+                remoteRef ! counter
+              }
+          }
+        }).withDeploy(Deploy.local)
 
       system.actorOf(senderProps(remoteRefA))
       system.actorOf(senderProps(remoteRefB))
@@ -134,22 +171,23 @@ abstract class AbstractRemoteSendConsistencySpec(config: Config) extends ArteryM
       val selB = system.actorSelection(rootB / "user" / "echoB2")
       val selC = system.actorSelection(rootB / "user" / "echoC2")
 
-      def senderProps(sel: ActorSelection) = Props(new Actor {
-        var counter = 1000
-        sel ! counter
+      def senderProps(sel: ActorSelection) =
+        Props(new Actor {
+          var counter = 1000
+          sel ! counter
 
-        override def receive: Receive = {
-          case i: Int ⇒
-            if (i != counter) testActor ! s"Failed, expected $counter got $i"
-            else if (counter == 0) {
-              testActor ! "success2"
-              context.stop(self)
-            } else {
-              counter -= 1
-              sel ! counter
-            }
-        }
-      }).withDeploy(Deploy.local)
+          override def receive: Receive = {
+            case i: Int =>
+              if (i != counter) testActor ! s"Failed, expected $counter got $i"
+              else if (counter == 0) {
+                testActor ! "success2"
+                context.stop(self)
+              } else {
+                counter -= 1
+                sel ! counter
+              }
+          }
+        }).withDeploy(Deploy.local)
 
       system.actorOf(senderProps(selA))
       system.actorOf(senderProps(selB))

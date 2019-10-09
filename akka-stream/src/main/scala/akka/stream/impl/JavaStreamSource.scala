@@ -1,3 +1,7 @@
+/*
+ * Copyright (C) 2018-2019 Lightbend Inc. <https://www.lightbend.com>
+ */
+
 package akka.stream.impl
 
 import akka.stream._
@@ -5,8 +9,9 @@ import akka.stream.stage.{ GraphStage, GraphStageLogic, OutHandler }
 import akka.annotation.InternalApi
 
 /** INTERNAL API */
-@InternalApi private[stream] final class JavaStreamSource[T, S <: java.util.stream.BaseStream[T, S]](open: () ⇒ java.util.stream.BaseStream[T, S])
-  extends GraphStage[SourceShape[T]] {
+@InternalApi private[stream] final class JavaStreamSource[T, S <: java.util.stream.BaseStream[T, S]](
+    open: () => java.util.stream.BaseStream[T, S])
+    extends GraphStage[SourceShape[T]] {
 
   val out: Outlet[T] = Outlet("JavaStreamSource")
   override val shape: SourceShape[T] = SourceShape(out)

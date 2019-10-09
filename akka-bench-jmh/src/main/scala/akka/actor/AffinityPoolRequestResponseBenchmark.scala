@@ -1,6 +1,7 @@
-/**
- * Copyright (C) 2014-2017 Lightbend Inc. <http://www.lightbend.com>
+/*
+ * Copyright (C) 2014-2019 Lightbend Inc. <https://www.lightbend.com>
  */
+
 package akka.actor
 
 import java.util.concurrent.{ CountDownLatch, TimeUnit }
@@ -48,8 +49,9 @@ class AffinityPoolRequestResponseBenchmark {
         s"""default-mailbox.mailbox-type = "${classOf[akka.dispatch.SingleConsumerOnlyUnboundedMailbox].getName}""""
     }
 
-    system = ActorSystem("AffinityPoolComparativeBenchmark", ConfigFactory.parseString(
-      s"""| akka {
+    system = ActorSystem(
+      "AffinityPoolComparativeBenchmark",
+      ConfigFactory.parseString(s"""| akka {
           |   log-dead-letters = off
           |   actor {
           |     default-fj-dispatcher {
@@ -85,8 +87,7 @@ class AffinityPoolRequestResponseBenchmark {
           |     $mailboxConf
           |   }
           | }
-      """.stripMargin
-    ))
+      """.stripMargin))
   }
 
   @TearDown(Level.Trial)
@@ -94,7 +95,8 @@ class AffinityPoolRequestResponseBenchmark {
 
   @Setup(Level.Invocation)
   def setupActors(): Unit = {
-    val (_actors, _latch) = RequestResponseActors.startUserQueryActorPairs(numActors, numQueriesPerActor, numUsersInDB, dispatcher)
+    val (_actors, _latch) =
+      RequestResponseActors.startUserQueryActorPairs(numActors, numQueriesPerActor, numUsersInDB, dispatcher)
     actors = _actors
     latch = _latch
   }

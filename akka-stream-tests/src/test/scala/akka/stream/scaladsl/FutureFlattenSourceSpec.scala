@@ -1,34 +1,32 @@
-/**
- * Copyright (C) 2015-2017 Lightbend Inc. <http://www.lightbend.com>
+/*
+ * Copyright (C) 2015-2019 Lightbend Inc. <https://www.lightbend.com>
  */
+
 package akka.stream.scaladsl
 
 import java.util.concurrent.{ CompletableFuture, TimeUnit }
 
-import akka.Done
 import akka.stream._
 import akka.stream.stage.{ GraphStageLogic, GraphStageWithMaterializedValue }
-import akka.stream.testkit.Utils.{ TE, assertAllStagesStopped }
+import akka.stream.testkit.Utils.TE
 import akka.stream.testkit.{ StreamSpec, TestPublisher, TestSubscriber }
+import akka.stream.testkit.scaladsl.StreamTestKit._
 import akka.testkit.TestLatch
 
 import scala.concurrent.{ Await, Future, Promise }
 
 class FutureFlattenSourceSpec extends StreamSpec {
 
-  implicit val materializer = ActorMaterializer()
   implicit def ec = system.dispatcher
 
   "Future source" must {
 
     val underlying: Source[Int, String] =
-      Source(List(1, 2, 3)).mapMaterializedValue(_ ⇒ "foo")
+      Source(List(1, 2, 3)).mapMaterializedValue(_ => "foo")
 
     "emit the elements of the already successful future source" in assertAllStagesStopped {
       val (sourceMatVal, sinkMatVal) =
-        Source.fromFutureSource(Future.successful(underlying))
-          .toMat(Sink.seq)(Keep.both)
-          .run()
+        Source.fromFutureSource(Future.successful(underlying)).toMat(Sink.seq)(Keep.both).run()
 
       // should complete as soon as inner source has been materialized
       sourceMatVal.futureValue should ===("foo")
@@ -38,14 +36,12 @@ class FutureFlattenSourceSpec extends StreamSpec {
     "emit no elements before the future of source successful" in assertAllStagesStopped {
       val c = TestSubscriber.manualProbe[Int]()
       val sourcePromise = Promise[Source[Int, String]]()
-      val p = Source.fromFutureSource(sourcePromise.future)
-        .runWith(Sink.asPublisher(true))
-        .subscribe(c)
+      Source.fromFutureSource(sourcePromise.future).runWith(Sink.asPublisher(true)).subscribe(c)
       val sub = c.expectSubscription()
       import scala.concurrent.duration._
-      c.expectNoMsg(100.millis)
+      c.expectNoMessage(100.millis)
       sub.request(3)
-      c.expectNoMsg(100.millis)
+      c.expectNoMessage(100.millis)
       sourcePromise.success(underlying)
       c.expectNext(1)
       c.expectNext(2)
@@ -57,9 +53,7 @@ class FutureFlattenSourceSpec extends StreamSpec {
 
       val sourcePromise = Promise[Source[Int, String]]()
       val (sourceMatVal, sinkMatVal) =
-        Source.fromFutureSource(sourcePromise.future)
-          .toMat(Sink.seq)(Keep.both)
-          .run()
+        Source.fromFutureSource(sourcePromise.future).toMat(Sink.seq)(Keep.both).run()
       sourcePromise.success(underlying)
       // should complete as soon as inner source has been materialized
       sourceMatVal.futureValue should ===("foo")
@@ -68,10 +62,11 @@ class FutureFlattenSourceSpec extends StreamSpec {
 
     "emit the elements from a source in a completion stage" in assertAllStagesStopped {
       val (sourceMatVal, sinkMatVal) =
-        Source.fromSourceCompletionStage(
-          // can't be inferred
-          CompletableFuture.completedFuture[Graph[SourceShape[Int], String]](underlying)
-        ).toMat(Sink.seq)(Keep.both)
+        Source
+          .fromSourceCompletionStage(
+            // can't be inferred
+            CompletableFuture.completedFuture[Graph[SourceShape[Int], String]](underlying))
+          .toMat(Sink.seq)(Keep.both)
           .run()
 
       sourceMatVal.toCompletableFuture.get(remainingOrDefault.toMillis, TimeUnit.MILLISECONDS) should ===("foo")
@@ -81,18 +76,23 @@ class FutureFlattenSourceSpec extends StreamSpec {
     "handle downstream cancelling before the underlying Future completes" in assertAllStagesStopped {
       val sourcePromise = Promise[Source[Int, String]]()
 
-      val (sourceMatVal, termination) =
-        Source.fromFutureSource(sourcePromise.future)
-          .watchTermination()(Keep.both)
-          .to(Sink.cancelled)
-          .run()
+      val probe = TestSubscriber.probe[Int]()
+      val sourceMatVal =
+        Source.fromFutureSource(sourcePromise.future).toMat(Sink.fromSubscriber(probe))(Keep.left).run()
 
       // wait for cancellation to occur
-      termination.futureValue should ===(Done)
+      probe.ensureSubscription()
+      probe.request(1)
+      probe.cancel()
+
+      // try to avoid a race between probe cancel and completing the promise
+      Thread.sleep(100)
 
       // even though canceled the underlying matval should arrive
       sourcePromise.success(underlying)
-      sourceMatVal.futureValue should ===("foo")
+      val failure = sourceMatVal.failed.futureValue
+      failure shouldBe a[StreamDetachedException]
+      failure.getMessage should ===("Stream cancelled before Source Future completed")
     }
 
     "fail if the underlying Future is failed" in assertAllStagesStopped {
@@ -108,8 +108,9 @@ class FutureFlattenSourceSpec extends StreamSpec {
       val sourcePromise = Promise[Source[Int, String]]()
       val materializationLatch = TestLatch(1)
       val (sourceMatVal, sinkMatVal) =
-        Source.fromFutureSource(sourcePromise.future)
-          .mapMaterializedValue { value ⇒
+        Source
+          .fromFutureSource(sourcePromise.future)
+          .mapMaterializedValue { value =>
             materializationLatch.countDown()
             value
           }
@@ -130,9 +131,7 @@ class FutureFlattenSourceSpec extends StreamSpec {
       val sourcePromise = Promise[Source[Int, String]]()
       val testProbe = TestSubscriber.probe[Int]()
       val sourceMatVal =
-        Source.fromFutureSource(sourcePromise.future)
-          .to(Sink.fromSubscriber(testProbe))
-          .run()
+        Source.fromFutureSource(sourcePromise.future).to(Sink.fromSubscriber(testProbe)).run()
 
       testProbe.expectSubscription()
       sourcePromise.failure(failure)
@@ -146,13 +145,11 @@ class FutureFlattenSourceSpec extends StreamSpec {
 
       val sourcePromise = Promise[Source[Int, String]]()
 
-      val matVal = Source.fromFutureSource(sourcePromise.future)
-        .to(Sink.fromSubscriber(subscriber))
-        .run()
+      val matVal = Source.fromFutureSource(sourcePromise.future).to(Sink.fromSubscriber(subscriber)).run()
 
       subscriber.ensureSubscription()
 
-      sourcePromise.success(Source.fromPublisher(publisher).mapMaterializedValue(_ ⇒ "woho"))
+      sourcePromise.success(Source.fromPublisher(publisher).mapMaterializedValue(_ => "woho"))
 
       // materialized value completes but still no demand
       matVal.futureValue should ===("woho")
@@ -173,13 +170,11 @@ class FutureFlattenSourceSpec extends StreamSpec {
 
       val sourcePromise = Promise[Source[Int, String]]()
 
-      val matVal = Source.fromFutureSource(sourcePromise.future)
-        .to(Sink.fromSubscriber(subscriber))
-        .run()
+      val matVal = Source.fromFutureSource(sourcePromise.future).to(Sink.fromSubscriber(subscriber)).run()
 
       subscriber.ensureSubscription()
 
-      sourcePromise.success(Source.fromPublisher(publisher).mapMaterializedValue(_ ⇒ "woho"))
+      sourcePromise.success(Source.fromPublisher(publisher).mapMaterializedValue(_ => "woho"))
 
       // materialized value completes but still no demand
       matVal.futureValue should ===("woho")
@@ -202,9 +197,7 @@ class FutureFlattenSourceSpec extends StreamSpec {
     "fail when the future source materialization fails" in assertAllStagesStopped {
       val inner = Future.successful(Source.fromGraph(new FailingMatGraphStage))
       val (innerSourceMat: Future[String], outerSinkMat: Future[Seq[Int]]) =
-        Source.fromFutureSource(inner)
-          .toMat(Sink.seq)(Keep.both)
-          .run()
+        Source.fromFutureSource(inner).toMat(Sink.seq)(Keep.both).run()
 
       outerSinkMat.failed.futureValue should ===(TE("INNER_FAILED"))
       innerSourceMat.failed.futureValue should ===(TE("INNER_FAILED"))

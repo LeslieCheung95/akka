@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2015-2017 Lightbend Inc. <http://www.lightbend.com>
+ * Copyright (C) 2015-2019 Lightbend Inc. <https://www.lightbend.com>
  */
 
 package docs.persistence
@@ -81,7 +81,10 @@ class PersistenceEventAdapterDocSpec(config: String) extends AkkaSpec(config) {
         }
 
         override def receiveCommand: Receive = {
-          case c => persist(c) { e => p.ref ! e }
+          case c =>
+            persist(c) { e =>
+              p.ref ! e
+            }
         }
       })
 
@@ -113,7 +116,10 @@ class PersistenceEventAdapterDocSpec(config: String) extends AkkaSpec(config) {
         }
 
         override def receiveCommand: Receive = {
-          case c => persist(c) { e => p.ref ! e }
+          case c =>
+            persist(c) { e =>
+              p.ref ! e
+            }
         }
       })
 

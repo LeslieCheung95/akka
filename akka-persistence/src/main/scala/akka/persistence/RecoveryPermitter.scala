@@ -1,6 +1,7 @@
-/**
- * Copyright (C) 2017 Lightbend Inc. <http://www.lightbend.com>
+/*
+ * Copyright (C) 2017-2019 Lightbend Inc. <https://www.lightbend.com>
  */
+
 package akka.persistence
 
 import java.util.LinkedList
@@ -18,9 +19,12 @@ import akka.actor.Terminated
   def props(maxPermits: Int): Props =
     Props(new RecoveryPermitter(maxPermits))
 
-  case object RequestRecoveryPermit
-  case object RecoveryPermitGranted
-  case object ReturnRecoveryPermit
+  sealed trait Protocol
+  sealed trait Request extends Protocol
+  sealed trait Reply extends Protocol
+  case object RequestRecoveryPermit extends Request
+  case object RecoveryPermitGranted extends Reply
+  case object ReturnRecoveryPermit extends Request
 
 }
 
@@ -37,7 +41,7 @@ import akka.actor.Terminated
   private var maxPendingStats = 0
 
   def receive = {
-    case RequestRecoveryPermit ⇒
+    case RequestRecoveryPermit =>
       context.watch(sender())
       if (usedPermits >= maxPermits) {
         if (pending.isEmpty)
@@ -48,19 +52,19 @@ import akka.actor.Terminated
         recoveryPermitGranted(sender())
       }
 
-    case ReturnRecoveryPermit ⇒
-      returnRecoveryPermit(sender())
+    case ReturnRecoveryPermit =>
+      onReturnRecoveryPermit(sender())
 
-    case Terminated(ref) ⇒
+    case Terminated(ref) =>
       // pre-mature termination should be rare
       if (!pending.remove(ref))
-        returnRecoveryPermit(ref)
+        onReturnRecoveryPermit(ref)
   }
 
-  private def returnRecoveryPermit(ref: ActorRef): Unit = {
+  private def onReturnRecoveryPermit(ref: ActorRef): Unit = {
     usedPermits -= 1
     context.unwatch(ref)
-    if (usedPermits < 0) throw new IllegalStateException("permits must not be negative")
+    if (usedPermits < 0) throw new IllegalStateException(s"permits must not be negative (returned by: ${ref})")
     if (!pending.isEmpty) {
       val ref = pending.poll()
       recoveryPermitGranted(ref)
@@ -68,7 +72,8 @@ import akka.actor.Terminated
     if (pending.isEmpty && maxPendingStats > 0) {
       log.debug(
         "Drained pending recovery permit requests, max in progress was [{}], still [{}] in progress",
-        usedPermits + maxPendingStats, usedPermits)
+        usedPermits + maxPendingStats,
+        usedPermits)
       maxPendingStats = 0
     }
   }

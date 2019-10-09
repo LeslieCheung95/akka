@@ -1,6 +1,8 @@
-/**
- * Copyright (C) 2009-2017 Lightbend Inc. <http://www.lightbend.com>
+/*
+ * Copyright (C) 2009-2019 Lightbend Inc. <https://www.lightbend.com>
  */
+
+syntax = "proto2";
 
 option java_package = "akka.remote";
 option optimize_for = SPEED;
@@ -137,16 +139,6 @@ enum CommandType {
 }
 
 /**
- * Defines a remote address.
- */
-message AddressData {
-  required string system = 1;
-  required string hostname = 2;
-  required uint32 port = 3;
-  optional string protocol = 4;
-}
-
-/**
  * java.util.concurrent.TimeUnit enum
  */
 enum TimeUnit {
@@ -201,6 +193,16 @@ message TailChoppingPool {
   required GenericRoutingPool generic = 1;
   required FiniteDuration within = 2;
   required FiniteDuration interval = 3;
+}
+
+/**
+ * Defines a remote address.
+ */
+message AddressData {
+  required string system = 1;
+  required string hostname = 2;
+  required uint32 port = 3;
+  optional string protocol = 4;
 }
 
 message RemoteRouterConfig {

@@ -1,9 +1,10 @@
-/**
- * Copyright (C) 2015-2017 Lightbend Inc. <http://www.lightbend.com>
+/*
+ * Copyright (C) 2015-2019 Lightbend Inc. <https://www.lightbend.com>
  */
+
 package akka.stream.impl
 
-import java.{ util ⇒ ju }
+import java.{ util => ju }
 
 import akka.annotation.InternalApi
 import akka.stream._
@@ -31,14 +32,8 @@ private[akka] object Buffer {
   val FixedQueueSize = 128
   val FixedQueueMask = 127
 
-  def apply[T](size: Int, settings: ActorMaterializerSettings): Buffer[T] =
-    apply(size, settings.maxFixedBufferSize)
-
-  def apply[T](size: Int, materializer: Materializer): Buffer[T] =
-    materializer match {
-      case m: ActorMaterializer ⇒ apply(size, m.settings.maxFixedBufferSize)
-      case _                    ⇒ apply(size, 1000000000)
-    }
+  def apply[T](size: Int, effectiveAttributes: Attributes): Buffer[T] =
+    apply(size, effectiveAttributes.mandatoryAttribute[ActorAttributes.MaxFixedBufferSize].size)
 
   def apply[T](size: Int, max: Int): Buffer[T] =
     if (size < FixedQueueSize || size < max) FixedSizeBuffer(size)
@@ -65,7 +60,8 @@ private[akka] object Buffer {
     else new ModuloFixedSizeBuffer(size)
 
   sealed abstract class FixedSizeBuffer[T](val capacity: Int) extends Buffer[T] {
-    override def toString = s"Buffer($capacity, $readIdx, $writeIdx)(${(readIdx until writeIdx).map(get).mkString(", ")})"
+    override def toString =
+      s"Buffer($capacity, $readIdx, $writeIdx)(${(readIdx until writeIdx).map(get).mkString(", ")})"
     private val buffer = new Array[AnyRef](capacity)
 
     protected var readIdx = 0L
@@ -73,6 +69,9 @@ private[akka] object Buffer {
     def used: Int = (writeIdx - readIdx).toInt
 
     def isFull: Boolean = used == capacity
+    def nonFull: Boolean = used < capacity
+    def remainingCapacity: Int = capacity - used
+
     def isEmpty: Boolean = used == 0
     def nonEmpty: Boolean = used != 0
 
@@ -84,7 +83,8 @@ private[akka] object Buffer {
     // for the maintenance parameter see dropHead
     protected def toOffset(idx: Long, maintenance: Boolean): Int
 
-    private def put(idx: Long, elem: T, maintenance: Boolean): Unit = buffer(toOffset(idx, maintenance)) = elem.asInstanceOf[AnyRef]
+    private def put(idx: Long, elem: T, maintenance: Boolean): Unit =
+      buffer(toOffset(idx, maintenance)) = elem.asInstanceOf[AnyRef]
     private def get(idx: Long): T = buffer(toOffset(idx, false)).asInstanceOf[T]
 
     def peek(): T = get(readIdx)
@@ -172,7 +172,7 @@ private[akka] object Buffer {
 
     override def enqueue(elem: T): Unit =
       if (tail - head == FixedQueueSize) {
-        val queue = new DynamicQueue(head)
+        val queue = new DynamicQueue()
         while (nonEmpty) {
           queue.enqueue(dequeue())
         }
@@ -204,7 +204,7 @@ private[akka] object Buffer {
     }
   }
 
-  private final class DynamicQueue(startIdx: Int) extends ju.LinkedList[T] with Buffer[T] {
+  private final class DynamicQueue() extends ju.LinkedList[T] with Buffer[T] {
     override def capacity = BoundedBuffer.this.capacity
     override def used = size
     override def isFull = size == capacity

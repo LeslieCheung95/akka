@@ -1,21 +1,16 @@
-/**
- * Copyright (C) 2014-2017 Lightbend Inc. <http://www.lightbend.com>
+/*
+ * Copyright (C) 2014-2019 Lightbend Inc. <https://www.lightbend.com>
  */
+
 package akka.stream.scaladsl
 
-import akka.stream.ActorMaterializer
-import akka.stream.testkit.{ StreamSpec, TestSubscriber, Utils }
+import akka.stream.testkit.StreamSpec
+import akka.stream.testkit.TestSubscriber
 import akka.testkit.DefaultTimeout
-import org.scalatest.time.{ Millis, Span }
 
-import scala.concurrent.Await
-import scala.concurrent.duration._
-import scala.util.Failure
 import scala.util.control.NoStackTrace
 
 class FailedSourceSpec extends StreamSpec with DefaultTimeout {
-
-  implicit val materializer = ActorMaterializer()
 
   "The Failed Source" must {
     "emit error immediately" in {

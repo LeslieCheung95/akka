@@ -1,15 +1,20 @@
-/**
- * Copyright (C) 2009-2017 Lightbend Inc. <http://www.lightbend.com>
+/*
+ * Copyright (C) 2009-2019 Lightbend Inc. <https://www.lightbend.com>
  */
 
 package akka.actor
 
-import akka.annotation.{ ApiMayChange, DoNotInherit }
+import akka.annotation.DoNotInherit
 import akka.japi.pf.ReceiveBuilder
-import akka.japi.pf.UnitPFBuilder
 
 import scala.runtime.BoxedUnit
 import java.util.Optional
+
+import akka.util.JavaDurationConverters
+import com.github.ghik.silencer.silent
+
+import scala.concurrent.ExecutionContextExecutor
+import scala.concurrent.duration.Duration
 
 /**
  * Java API: compatible with lambda expressions
@@ -19,17 +24,19 @@ object AbstractActor {
   /**
    * Defines which messages the Actor can handle, along with the implementation of
    * how the messages should be processed. You can build such behavior with the
-   * [[akka.japi.pf.receivebuilder]] but it can be implemented in other ways than
+   * [[akka.japi.pf.ReceiveBuilder]] but it can be implemented in other ways than
    * using the `ReceiveBuilder` since it in the end is just a wrapper around a
    * Scala `PartialFunction`. In Java, you can implement `PartialFunction` by
    * extending `AbstractPartialFunction`.
    */
   final class Receive(val onMessage: PartialFunction[Any, BoxedUnit]) {
+
     /**
      * Composes this `Receive` with a fallback which gets applied
      * where this partial function is not defined.
      */
-    def orElse(other: Receive): Receive = new Receive(onMessage.orElse(other.onMessage))
+    def orElse(other: Receive): Receive =
+      new Receive(onMessage.orElse(other.onMessage))
   }
 
   /**
@@ -47,20 +54,42 @@ object AbstractActor {
   trait ActorContext extends akka.actor.ActorContext {
 
     /**
-     * Returns an unmodifiable Java Collection containing the linked actors,
-     * please note that the backing map is thread-safe but not immutable
+     * The ActorRef representing this actor
+     *
+     * This method is thread-safe and can be called from other threads than the ordinary
+     * actor message processing thread, such as [[java.util.concurrent.CompletionStage]] and [[scala.concurrent.Future]] callbacks.
+     */
+    def getSelf(): ActorRef
+
+    /**
+     * Retrieve the Props which were used to create this actor.
+     *
+     * This method is thread-safe and can be called from other threads than the ordinary
+     * actor message processing thread, such as [[java.util.concurrent.CompletionStage]] and [[scala.concurrent.Future]] callbacks.
+     */
+    def getProps(): Props
+
+    /**
+     * Returns the sender 'ActorRef' of the current message.
+     *
+     * *Warning*: This method is not thread-safe and must not be accessed from threads other
+     * than the ordinary actor message processing thread, such as [[java.util.concurrent.CompletionStage]] and [[scala.concurrent.Future]] callbacks.
+     */
+    def getSender(): ActorRef = sender()
+
+    /**
+     * Returns an unmodifiable Java Collection containing the linked actors
+     *
+     * *Warning*: This method is not thread-safe and must not be accessed from threads other
+     * than the ordinary actor message processing thread, such as [[java.util.concurrent.CompletionStage]] callbacks.
      */
     def getChildren(): java.lang.Iterable[ActorRef]
 
     /**
-     * Returns a reference to the named child or null if no child with
-     * that name exists.
-     */
-    @deprecated("Use findChild instead", "2.5.0")
-    def getChild(name: String): ActorRef
-
-    /**
      * Returns a reference to the named child if it exists.
+     *
+     * *Warning*: This method is not thread-safe and must not be accessed from threads other
+     * than the ordinary actor message processing thread, such as [[java.util.concurrent.CompletionStage]] callbacks.
      */
     def findChild(name: String): Optional[ActorRef]
 
@@ -68,6 +97,9 @@ object AbstractActor {
      * Returns the supervisor of this actor.
      *
      * Same as `parent()`.
+     *
+     * This method is thread-safe and can be called from other threads than the ordinary
+     * actor message processing thread, such as [[java.util.concurrent.CompletionStage]] callbacks.
      */
     def getParent(): ActorRef
 
@@ -75,12 +107,26 @@ object AbstractActor {
      * Returns the system this actor is running in.
      *
      * Same as `system()`
+     *
+     * This method is thread-safe and can be called from other threads than the ordinary
+     * actor message processing thread, such as [[java.util.concurrent.CompletionStage]] callbacks.
      */
     def getSystem(): ActorSystem
 
     /**
+     * Returns the dispatcher (MessageDispatcher) that is used for this Actor.
+     *
+     * This method is thread-safe and can be called from other threads than the ordinary
+     * actor message processing thread, such as [[java.util.concurrent.CompletionStage]] and [[scala.concurrent.Future]] callbacks.
+     */
+    def getDispatcher(): ExecutionContextExecutor
+
+    /**
      * Changes the Actor's behavior to become the new 'Receive' handler.
      * Replaces the current behavior on the top of the behavior stack.
+     *
+     * *Warning*: This method is not thread-safe and must not be accessed from threads other
+     * than the ordinary actor message processing thread, such as [[java.util.concurrent.CompletionStage]] callbacks.
      */
     def become(behavior: Receive): Unit =
       become(behavior, discardOld = true)
@@ -95,9 +141,53 @@ object AbstractActor {
      * The default of replacing the current behavior on the stack has been chosen to avoid memory
      * leaks in case client code is written without consulting this documentation first (i.e.
      * always pushing new behaviors and never issuing an `unbecome()`)
+     *
+     * *Warning*: This method is not thread-safe and must not be accessed from threads other
+     * than the ordinary actor message processing thread, such as [[java.util.concurrent.CompletionStage]] callbacks.
      */
     def become(behavior: Receive, discardOld: Boolean): Unit =
       become(behavior.onMessage.asInstanceOf[PartialFunction[Any, Unit]], discardOld)
+
+    /**
+     * Gets the current receive timeout.
+     * When specified, the receive method should be able to handle a [[akka.actor.ReceiveTimeout]] message.
+     *
+     * *Warning*: This method is not thread-safe and must not be accessed from threads other
+     * than the ordinary actor message processing thread, such as [[java.util.concurrent.CompletionStage]] and [[scala.concurrent.Future]] callbacks.
+     */
+    def getReceiveTimeout(): java.time.Duration = {
+      import JavaDurationConverters._
+      receiveTimeout.asJava
+    }
+
+    /**
+     * Defines the inactivity timeout after which the sending of a [[akka.actor.ReceiveTimeout]] message is triggered.
+     * When specified, the receive function should be able to handle a [[akka.actor.ReceiveTimeout]] message.
+     * 1 millisecond is the minimum supported timeout.
+     *
+     * Please note that the receive timeout might fire and enqueue the `ReceiveTimeout` message right after
+     * another message was enqueued; hence it is '''not guaranteed''' that upon reception of the receive
+     * timeout there must have been an idle period beforehand as configured via this method.
+     *
+     * Once set, the receive timeout stays in effect (i.e. continues firing repeatedly after inactivity
+     * periods). Pass in `Duration.Undefined` to switch off this feature.
+     *
+     * Messages marked with [[NotInfluenceReceiveTimeout]] will not reset the timer. This can be useful when
+     * `ReceiveTimeout` should be fired by external inactivity but not influenced by internal activity,
+     * e.g. scheduled tick messages.
+     *
+     * *Warning*: This method is not thread-safe and must not be accessed from threads other
+     * than the ordinary actor message processing thread, such as [[java.util.concurrent.CompletionStage]] and [[scala.concurrent.Future]] callbacks.
+     */
+    def setReceiveTimeout(timeout: java.time.Duration): Unit = {
+      import JavaDurationConverters._
+      setReceiveTimeout(timeout.asScala)
+    }
+
+    /**
+     * Cancel the sending of receive timeout notifications.
+     */
+    def cancelReceiveTimeout(): Unit = setReceiveTimeout(Duration.Undefined)
   }
 }
 
@@ -108,23 +198,21 @@ object AbstractActor {
  * <p/>
  * Example:
  * <pre>
- * public class MyActor extends AbstractActor {
- *   int count = 0;
- *
- *   public MyActor() {
- *     receive(receiveBuilder()
- *       .match(Double.class, d -> {
- *         sender().tell(d.isNaN() ? 0 : d, self());
- *       })
- *       .match(Integer.class, i -> {
- *         sender().tell(i * 10, self());
- *       })
- *       .match(String.class, s -> s.startsWith("foo"), s -> {
- *         sender().tell(s.toUpperCase(), self());
- *       })
- *       .build();
- *     );
- *   }
+ * public class MyActorForJavaDoc extends AbstractActor{
+ *    @Override
+ *    public Receive createReceive() {
+ *        return receiveBuilder()
+ *                .match(Double.class, d -> {
+ *                    sender().tell(d.isNaN() ? 0 : d, self());
+ *                })
+ *                .match(Integer.class, i -> {
+ *                    sender().tell(i * 10, self());
+ *                })
+ *                .match(String.class, s -> s.startsWith("foo"), s -> {
+ *                    sender().tell(s.toUpperCase(), self());
+ *                })
+ *                .build();
+ *    }
  * }
  * </pre>
  *
@@ -185,6 +273,7 @@ abstract class AbstractActor extends Actor {
   // TODO In 2.6.0 we can remove deprecation and make the method final
   @deprecated("Override preRestart with message parameter with Optional type instead", "2.5.0")
   @throws(classOf[Exception])
+  @silent("deprecated")
   override def preRestart(reason: Throwable, message: Option[Any]): Unit = {
     import scala.compat.java8.OptionConverters._
     preRestart(reason, message.asJava)
@@ -240,7 +329,7 @@ abstract class UntypedAbstractActor extends AbstractActor {
   final override def createReceive(): AbstractActor.Receive =
     throw new UnsupportedOperationException("createReceive should not be used by UntypedAbstractActor")
 
-  override def receive: PartialFunction[Any, Unit] = { case msg ⇒ onReceive(msg) }
+  override def receive: PartialFunction[Any, Unit] = { case msg => onReceive(msg) }
 
   /**
    * To be implemented by concrete UntypedAbstractActor, this defines the behavior of the

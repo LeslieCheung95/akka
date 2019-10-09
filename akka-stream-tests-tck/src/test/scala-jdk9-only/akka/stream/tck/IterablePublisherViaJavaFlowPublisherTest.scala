@@ -1,6 +1,7 @@
 /*
- * Copyright (C) 2017 Lightbend Inc. <http://www.lightbend.com/>
+ * Copyright (C) 2017-2019 Lightbend Inc. <https://www.lightbend.com>
  */
+
 package akka.stream.tck
 
 import java.util.concurrent.{ Flow => JavaFlow }
@@ -14,9 +15,8 @@ class IterablePublisherViaJavaFlowPublisherTest extends AkkaPublisherVerificatio
   override def createPublisher(elements: Long): Publisher[Int] = {
     val sourceViaJavaFlowPublisher: JavaFlow.Publisher[Int] = Source(iterable(elements))
       .runWith(JavaFlowSupport.Sink.asPublisher(fanout = false))
-    
 
-    val javaFlowPublisherIntoAkkaSource: Source[Int, NotUsed] = 
+    val javaFlowPublisherIntoAkkaSource: Source[Int, NotUsed] =
       JavaFlowSupport.Source.fromPublisher(sourceViaJavaFlowPublisher)
 
     javaFlowPublisherIntoAkkaSource

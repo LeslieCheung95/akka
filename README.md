@@ -1,4 +1,4 @@
-Akka
+Akka [![Latest version](https://index.scala-lang.org/akka/akka/akka-actor/latest.svg)](https://index.scala-lang.org/akka/akka/akka-actor)[![Build Status](https://travis-ci.org/akka/akka.svg?branch=master)](https://travis-ci.org/akka/akka) 
 ====
 
 We believe that writing correct concurrent & distributed, resilient and elastic applications is too hard.
@@ -24,7 +24,7 @@ Community
 ---------
 You can join these groups and chats to discuss and ask Akka related questions:
 
-- Mailing list: [![google groups: akka-user](https://img.shields.io/badge/group%3A-akka--user-blue.svg?style=flat-square)](https://groups.google.com/forum/#!forum/akka-user)
+- Forums: [discuss.akka.io](https://discuss.akka.io)
 - Chat room about *using* Akka: [![gitter: akka/akka](https://img.shields.io/badge/gitter%3A-akka%2Fakka-blue.svg?style=flat-square)](https://gitter.im/akka/akka)
 - Issue tracker: [![github: akka/akka](https://img.shields.io/badge/github%3A-issues-blue.svg?style=flat-square)](https://github.com/akka/akka/issues)
 

@@ -1,6 +1,7 @@
-/**
- * Copyright (C) 2009-2017 Lightbend Inc. <http://www.lightbend.com>
+/*
+ * Copyright (C) 2009-2019 Lightbend Inc. <https://www.lightbend.com>
  */
+
 package akka.io
 
 import java.net.InetSocketAddress
@@ -10,14 +11,13 @@ import akka.util.ByteString
 import akka.actor.ActorRef
 import akka.io.Udp._
 import akka.io.Inet._
-import akka.testkit.SocketUtil._
+import akka.testkit.SocketUtil.temporaryServerAddresses
 import java.net.DatagramSocket
 
 class UdpIntegrationSpec extends AkkaSpec("""
     akka.loglevel = INFO
     # tests expect to be able to mutate messages
-    akka.actor.serialize-messages = off
-    akka.actor.serialize-creators = on""") with ImplicitSender {
+    """) with ImplicitSender {
 
   def bindUdp(handler: ActorRef): InetSocketAddress = {
     val commander = TestProbe()
@@ -72,7 +72,7 @@ class UdpIntegrationSpec extends AkkaSpec("""
       def checkSendingToClient(): Unit = {
         server ! Send(data, clientAddress)
         expectMsgPF() {
-          case Received(d, a) ⇒
+          case Received(d, a) =>
             d should ===(data)
             a should ===(serverAddress)
         }
@@ -80,15 +80,15 @@ class UdpIntegrationSpec extends AkkaSpec("""
       def checkSendingToServer(): Unit = {
         client ! Send(data, serverAddress)
         expectMsgPF() {
-          case Received(d, a) ⇒
+          case Received(d, a) =>
             d should ===(data)
             a should ===(clientAddress)
         }
       }
 
-      (0 until 20).foreach(_ ⇒ checkSendingToServer())
-      (0 until 20).foreach(_ ⇒ checkSendingToClient())
-      (0 until 20).foreach { i ⇒
+      (0 until 20).foreach(_ => checkSendingToServer())
+      (0 until 20).foreach(_ => checkSendingToClient())
+      (0 until 20).foreach { i =>
         if (i % 2 == 0) checkSendingToServer()
         else checkSendingToClient()
       }

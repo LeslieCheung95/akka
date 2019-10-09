@@ -1,6 +1,7 @@
-/**
- * Copyright (C) 2009-2017 Lightbend Inc. <http://www.lightbend.com>
+/*
+ * Copyright (C) 2009-2019 Lightbend Inc. <https://www.lightbend.com>
  */
+
 package docs.actor
 
 import akka.actor._
@@ -21,11 +22,11 @@ class UnnestedReceives extends Actor {
   //This message processes a message/event
   def process(msg: Any): Unit = println("processing: " + msg)
   //This method subscribes the actor to the event bus
-  def subscribe() {} //Your external stuff
+  def subscribe(): Unit = {} //Your external stuff
   //This method retrieves all prior messages/events
   def allOldMessages() = List()
 
-  override def preStart {
+  override def preStart: Unit = {
     //We override preStart to be sure that the first message the actor gets is
     //'Replay, that message will start to be processed _after_ the actor is started
     self ! 'Replay
@@ -35,12 +36,12 @@ class UnnestedReceives extends Actor {
 
   def receive = {
     case 'Replay => //Our first message should be a 'Replay message, all others are invalid
-      allOldMessages() foreach process //Process all old messages/events
+      allOldMessages().foreach(process) //Process all old messages/events
       become { //Switch behavior to look for the GoAhead signal
         case 'GoAhead => //When we get the GoAhead signal we process all our buffered messages/events
-          queue foreach process
+          queue.foreach(process)
           queue.clear
-          become { //Then we change behaviour to process incoming messages/events as they arrive
+          become { //Then we change behavior to process incoming messages/events as they arrive
             case msg => process(msg)
           }
         case msg => //While we haven't gotten the GoAhead signal, buffer all incoming messages

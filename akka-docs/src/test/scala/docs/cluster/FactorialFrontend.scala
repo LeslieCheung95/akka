@@ -1,3 +1,7 @@
+/*
+ * Copyright (C) 2018-2019 Lightbend Inc. <https://www.lightbend.com>
+ */
+
 package scala.docs.cluster
 
 import scala.concurrent.duration._
@@ -15,9 +19,7 @@ import scala.concurrent.Await
 //#frontend
 class FactorialFrontend(upToN: Int, repeat: Boolean) extends Actor with ActorLogging {
 
-  val backend = context.actorOf(
-    FromConfig.props(),
-    name = "factorialBackendRouter")
+  val backend = context.actorOf(FromConfig.props(), name = "factorialBackendRouter")
 
   override def preStart(): Unit = {
     sendJobs()
@@ -40,7 +42,7 @@ class FactorialFrontend(upToN: Int, repeat: Boolean) extends Actor with ActorLog
 
   def sendJobs(): Unit = {
     log.info("Starting batch of factorials up to [{}]", upToN)
-    1 to upToN foreach { backend ! _ }
+    (1 to upToN).foreach { backend ! _ }
   }
 }
 //#frontend
@@ -49,16 +51,14 @@ object FactorialFrontend {
   def main(args: Array[String]): Unit = {
     val upToN = 200
 
-    val config = ConfigFactory.parseString("akka.cluster.roles = [frontend]").
-      withFallback(ConfigFactory.load("factorial"))
+    val config =
+      ConfigFactory.parseString("akka.cluster.roles = [frontend]").withFallback(ConfigFactory.load("factorial"))
 
     val system = ActorSystem("ClusterSystem", config)
     system.log.info("Factorials will start when 2 backend members in the cluster.")
     //#registerOnUp
-    Cluster(system) registerOnMemberUp {
-      system.actorOf(
-        Props(classOf[FactorialFrontend], upToN, true),
-        name = "factorialFrontend")
+    Cluster(system).registerOnMemberUp {
+      system.actorOf(Props(classOf[FactorialFrontend], upToN, true), name = "factorialFrontend")
     }
     //#registerOnUp
 
@@ -77,8 +77,10 @@ abstract class FactorialFrontend2 extends Actor {
     ClusterRouterGroup(
       AdaptiveLoadBalancingGroup(HeapMetricsSelector),
       ClusterRouterGroupSettings(
-        totalInstances = 100, routeesPaths = List("/user/factorialBackend"),
-        allowLocalRoutees = true, useRoles = Set("backend"))).props(),
+        totalInstances = 100,
+        routeesPaths = List("/user/factorialBackend"),
+        allowLocalRoutees = true,
+        useRoles = Set("backend"))).props(),
     name = "factorialBackendRouter2")
 
   //#router-lookup-in-code
@@ -93,10 +95,13 @@ abstract class FactorialFrontend3 extends Actor {
   import akka.cluster.metrics.SystemLoadAverageMetricsSelector
 
   val backend = context.actorOf(
-    ClusterRouterPool(AdaptiveLoadBalancingPool(
-      SystemLoadAverageMetricsSelector), ClusterRouterPoolSettings(
-      totalInstances = 100, maxInstancesPerNode = 3,
-      allowLocalRoutees = false, useRoles = Set("backend"))).props(Props[FactorialBackend]),
+    ClusterRouterPool(
+      AdaptiveLoadBalancingPool(SystemLoadAverageMetricsSelector),
+      ClusterRouterPoolSettings(
+        totalInstances = 100,
+        maxInstancesPerNode = 3,
+        allowLocalRoutees = false,
+        useRoles = Set("backend"))).props(Props[FactorialBackend]),
     name = "factorialBackendRouter3")
   //#router-deploy-in-code
 }

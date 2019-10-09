@@ -1,17 +1,18 @@
-/**
- * Copyright (C) 2009-2017 Lightbend Inc. <http://www.lightbend.com>
+/*
+ * Copyright (C) 2009-2019 Lightbend Inc. <https://www.lightbend.com>
  */
+
 package akka.cluster.sharding
 
 import java.io.File
-import akka.cluster.sharding.ShardRegion.Passivate
 
+import akka.cluster.sharding.ShardRegion.Passivate
 import scala.concurrent.duration._
+
 import org.apache.commons.io.FileUtils
 import com.typesafe.config.ConfigFactory
 import akka.actor._
-import akka.cluster.Cluster
-import akka.cluster.ClusterEvent._
+import akka.cluster.{ Cluster, MemberStatus, MultiNodeClusterSpec }
 import akka.persistence.Persistence
 import akka.persistence.journal.leveldb.SharedLeveldbJournal
 import akka.persistence.journal.leveldb.SharedLeveldbStore
@@ -20,31 +21,33 @@ import akka.remote.testkit.MultiNodeConfig
 import akka.remote.testkit.MultiNodeSpec
 import akka.remote.testkit.STMultiNodeSpec
 import akka.remote.transport.ThrottlerTransportAdapter.Direction
+import akka.serialization.jackson.CborSerializable
 import akka.testkit._
-import akka.cluster.MemberStatus
+import akka.util.ccompat._
 
+@ccompatUsedUntil213
 object ClusterShardingFailureSpec {
-  case class Get(id: String)
-  case class Add(id: String, i: Int)
-  case class Value(id: String, n: Int)
+  case class Get(id: String) extends CborSerializable
+  case class Add(id: String, i: Int) extends CborSerializable
+  case class Value(id: String, n: Int) extends CborSerializable
 
   class Entity extends Actor {
     var n = 0
 
     def receive = {
-      case Get(id)    ⇒ sender() ! Value(id, n)
-      case Add(id, i) ⇒ n += i
+      case Get(id)   => sender() ! Value(id, n)
+      case Add(_, i) => n += i
     }
   }
 
   val extractEntityId: ShardRegion.ExtractEntityId = {
-    case m @ Get(id)    ⇒ (id, m)
-    case m @ Add(id, _) ⇒ (id, m)
+    case m @ Get(id)    => (id, m)
+    case m @ Add(id, _) => (id, m)
   }
 
   val extractShardId: ShardRegion.ExtractShardId = {
-    case Get(id)    ⇒ id.charAt(0).toString
-    case Add(id, _) ⇒ id.charAt(0).toString
+    case Get(id)    => id.charAt(0).toString
+    case Add(id, _) => id.charAt(0).toString
   }
 
 }
@@ -54,11 +57,14 @@ abstract class ClusterShardingFailureSpecConfig(val mode: String) extends MultiN
   val first = role("first")
   val second = role("second")
 
-  commonConfig(ConfigFactory.parseString(s"""
+  commonConfig(
+    ConfigFactory
+      .parseString(s"""
     akka.loglevel = INFO
     akka.actor.provider = "cluster"
-    akka.remote.log-remote-lifecycle-events = off
-    akka.cluster.auto-down-unreachable-after = 0s
+    akka.remote.classic.log-remote-lifecycle-events = off
+    akka.cluster.downing-provider-class = akka.cluster.testkit.AutoDowning
+    akka.cluster.testkit.auto-down-unreachable-after = 0s
     akka.cluster.roles = ["backend"]
     akka.persistence.journal.plugin = "akka.persistence.journal.leveldb-shared"
     akka.persistence.journal.leveldb-shared {
@@ -79,7 +85,14 @@ abstract class ClusterShardingFailureSpecConfig(val mode: String) extends MultiN
       dir = target/ClusterShardingFailureSpec/sharding-ddata
       map-size = 10 MiB
     }
-    """))
+    # using Java serialization for these messages because test is sending them
+    # to other nodes, which isn't normal usage.
+    akka.actor.serialization-bindings {
+      "${classOf[ShardRegion.Passivate].getName}" = java-test
+    }
+    """)
+      .withFallback(SharedLeveldbJournal.configToEnableJavaSerializationForTest)
+      .withFallback(MultiNodeClusterSpec.clusterConfig))
 
   testTransport(on = true)
 }
@@ -87,7 +100,8 @@ abstract class ClusterShardingFailureSpecConfig(val mode: String) extends MultiN
 object PersistentClusterShardingFailureSpecConfig extends ClusterShardingFailureSpecConfig("persistence")
 object DDataClusterShardingFailureSpecConfig extends ClusterShardingFailureSpecConfig("ddata")
 
-class PersistentClusterShardingFailureSpec extends ClusterShardingFailureSpec(PersistentClusterShardingFailureSpecConfig)
+class PersistentClusterShardingFailureSpec
+    extends ClusterShardingFailureSpec(PersistentClusterShardingFailureSpecConfig)
 class DDataClusterShardingFailureSpec extends ClusterShardingFailureSpec(DDataClusterShardingFailureSpecConfig)
 
 class PersistentClusterShardingFailureMultiJvmNode1 extends PersistentClusterShardingFailureSpec
@@ -98,35 +112,38 @@ class DDataClusterShardingFailureMultiJvmNode1 extends DDataClusterShardingFailu
 class DDataClusterShardingFailureMultiJvmNode2 extends DDataClusterShardingFailureSpec
 class DDataClusterShardingFailureMultiJvmNode3 extends DDataClusterShardingFailureSpec
 
-abstract class ClusterShardingFailureSpec(config: ClusterShardingFailureSpecConfig) extends MultiNodeSpec(config) with STMultiNodeSpec with ImplicitSender {
+abstract class ClusterShardingFailureSpec(config: ClusterShardingFailureSpecConfig)
+    extends MultiNodeSpec(config)
+    with STMultiNodeSpec
+    with ImplicitSender {
   import ClusterShardingFailureSpec._
   import config._
 
   override def initialParticipants = roles.size
 
-  val storageLocations = List(new File(system.settings.config.getString(
-    "akka.cluster.sharding.distributed-data.durable.lmdb.dir")).getParentFile)
+  val storageLocations = List(
+    new File(system.settings.config.getString("akka.cluster.sharding.distributed-data.durable.lmdb.dir")).getParentFile)
 
-  override protected def atStartup() {
-    storageLocations.foreach(dir ⇒ if (dir.exists) FileUtils.deleteQuietly(dir))
+  override protected def atStartup(): Unit = {
+    storageLocations.foreach(dir => if (dir.exists) FileUtils.deleteQuietly(dir))
     enterBarrier("startup")
   }
 
-  override protected def afterTermination() {
-    storageLocations.foreach(dir ⇒ if (dir.exists) FileUtils.deleteQuietly(dir))
+  override protected def afterTermination(): Unit = {
+    storageLocations.foreach(dir => if (dir.exists) FileUtils.deleteQuietly(dir))
   }
 
   val cluster = Cluster(system)
 
   def join(from: RoleName, to: RoleName): Unit = {
     runOn(from) {
-      cluster join node(to).address
+      cluster.join(node(to).address)
       startSharding()
 
       within(remaining) {
         awaitAssert {
-          cluster.state.members.map(_.uniqueAddress) should contain(cluster.selfUniqueAddress)
-          cluster.state.members.map(_.status) should ===(Set(MemberStatus.Up))
+          cluster.state.members.unsorted.map(_.uniqueAddress) should contain(cluster.selfUniqueAddress)
+          cluster.state.members.unsorted.map(_.status) should ===(Set(MemberStatus.Up))
         }
       }
     }
@@ -155,7 +172,7 @@ abstract class ClusterShardingFailureSpec(config: ClusterShardingFailureSpecConf
         runOn(controller) {
           system.actorOf(Props[SharedLeveldbStore], "store")
         }
-        enterBarrier("peristence-started")
+        enterBarrier("persistence-started")
 
         runOn(first, second) {
           system.actorSelection(node(controller) / "user" / "store") ! Identify(None)
@@ -202,7 +219,7 @@ abstract class ClusterShardingFailureSpec(config: ClusterShardingFailureSpecConf
         region ! Add("40", 4)
         val probe = TestProbe()
         region.tell(Get("40"), probe.ref)
-        probe.expectNoMsg(1.second)
+        probe.expectNoMessage(1.second)
       }
 
       enterBarrier("first-delayed")
@@ -231,6 +248,18 @@ abstract class ClusterShardingFailureSpec(config: ClusterShardingFailureSpecConf
 
         //Test the Shard passivate works after a journal failure
         shard2.tell(Passivate(PoisonPill), entity21)
+
+        awaitAssert {
+          // Note that the order between this Get message to 21 and the above Passivate to 21 is undefined.
+          // If this Get arrives first the reply will be Value("21", 3) and then it is retried by the
+          // awaitAssert.
+          // Also note that there is no timeout parameter on below expectMsg because messages should not
+          // be lost here. They should be buffered and delivered also after Passivate completed.
+          region ! Get("21")
+          // counter reset to 0 when started again
+          expectMsg(Value("21", 0))
+        }
+
         region ! Add("21", 1)
 
         region ! Get("21")
@@ -269,4 +298,3 @@ abstract class ClusterShardingFailureSpec(config: ClusterShardingFailureSpecConf
 
   }
 }
-

@@ -1,3 +1,7 @@
+/*
+ * Copyright (C) 2018-2019 Lightbend Inc. <https://www.lightbend.com>
+ */
+
 package docs.stream
 
 import akka.NotUsed
@@ -6,32 +10,35 @@ import akka.stream.scaladsl._
 import akka.testkit.AkkaSpec
 
 class StreamBuffersRateSpec extends AkkaSpec {
-  implicit val materializer = ActorMaterializer()
 
   "Demonstrate pipelining" in {
     def println(s: Any) = ()
     //#pipelining
     Source(1 to 3)
-      .map { i => println(s"A: $i"); i }.async
-      .map { i => println(s"B: $i"); i }.async
-      .map { i => println(s"C: $i"); i }.async
+      .map { i =>
+        println(s"A: $i"); i
+      }
+      .async
+      .map { i =>
+        println(s"B: $i"); i
+      }
+      .async
+      .map { i =>
+        println(s"C: $i"); i
+      }
+      .async
       .runWith(Sink.ignore)
     //#pipelining
   }
 
   "Demonstrate buffer sizes" in {
-    //#materializer-buffer
-    val materializer = ActorMaterializer(
-      ActorMaterializerSettings(system)
-        .withInputBuffer(
-          initialSize = 64,
-          maxSize = 64))
-    //#materializer-buffer
-
     //#section-buffer
-    val section = Flow[Int].map(_ * 2).async
-      .addAttributes(Attributes.inputBuffer(initial = 1, max = 1)) // the buffer size of this map is 1
+    val section = Flow[Int].map(_ * 2).async.addAttributes(Attributes.inputBuffer(initial = 1, max = 1)) // the buffer size of this map is 1
     val flow = section.via(Flow[Int].map(_ / 2)).async // the buffer size of this map is the default
+    val runnableGraph =
+      Source(1 to 10).via(flow).to(Sink.foreach(elem => println(elem)))
+
+    val withOverriddenDefaults = runnableGraph.withAttributes(Attributes.inputBuffer(initial = 64, max = 64))
     //#section-buffer
   }
 
@@ -48,7 +55,8 @@ class StreamBuffersRateSpec extends AkkaSpec {
 
       Source.tick(initialDelay = 3.second, interval = 3.second, Tick()) ~> zipper.in0
 
-      Source.tick(initialDelay = 1.second, interval = 1.second, "message!")
+      Source
+        .tick(initialDelay = 1.second, interval = 1.second, "message!")
         .conflateWithSeed(seed = (_) => 1)((count, _) => count + 1) ~> zipper.in1
 
       zipper.out ~> Sink.foreach(println)

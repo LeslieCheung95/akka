@@ -1,9 +1,10 @@
-/**
- * Copyright (C) 2009-2017 Lightbend Inc. <http://www.lightbend.com>
+/*
+ * Copyright (C) 2009-2019 Lightbend Inc. <https://www.lightbend.com>
  */
+
 package docs.event
 
-import akka.actor.{ Actor, Props, DeadLetter }
+import akka.actor.{ Actor, DeadLetter, Props }
 import akka.testkit.AkkaSpec
 
 object LoggingDocSpec {
@@ -16,9 +17,8 @@ object LoggingDocSpec {
     override def preStart() = {
       log.debug("Starting")
     }
-    override def preRestart(reason: Throwable, message: Option[Any]) {
-      log.error(reason, "Restarting due to [{}] when processing [{}]",
-        reason.getMessage, message.getOrElse(""))
+    override def preRestart(reason: Throwable, message: Option[Any]): Unit = {
+      log.error(reason, "Restarting due to [{}] when processing [{}]", reason.getMessage, message.getOrElse(""))
     }
     def receive = {
       case "test" => log.info("Received test")

@@ -1,6 +1,7 @@
-/**
- * Copyright (C) 2014-2017 Lightbend Inc. <http://www.lightbend.com>
+/*
+ * Copyright (C) 2014-2019 Lightbend Inc. <https://www.lightbend.com>
  */
+
 package akka.actor
 
 import java.util.concurrent.CountDownLatch
@@ -24,7 +25,7 @@ object RequestResponseActors {
         receivedUsers.put(u.userId, u)
         if (left == 0) {
           latch.countDown()
-          context stop self
+          context.stop(self)
         } else {
           sender() ! Request(randGenerator.nextInt(numUsersInDB))
         }
@@ -45,11 +46,11 @@ object RequestResponseActors {
       case Request(id) =>
         userDb.get(id) match {
           case Some(u) => sender() ! u
-          case None =>
+          case None    =>
         }
         if (left == 0) {
           latch.countDown()
-          context stop self
+          context.stop(self)
         }
         left -= 1
     }
@@ -70,13 +71,16 @@ object RequestResponseActors {
     }
   }
 
-  def startUserQueryActorPairs(numActors: Int, numQueriesPerActor: Int, numUsersInDBPerActor: Int, dispatcher: String)(implicit system: ActorSystem) = {
+  def startUserQueryActorPairs(numActors: Int, numQueriesPerActor: Int, numUsersInDBPerActor: Int, dispatcher: String)(
+      implicit system: ActorSystem) = {
     val fullPathToDispatcher = "akka.actor." + dispatcher
     val latch = new CountDownLatch(numActors)
     val actorsPairs = for {
       i <- (1 to (numActors / 2)).toVector
-      userQueryActor = system.actorOf(UserQueryActor.props(latch, numQueriesPerActor, numUsersInDBPerActor).withDispatcher(fullPathToDispatcher))
-      userServiceActor = system.actorOf(UserServiceActor.props(latch, numQueriesPerActor, numUsersInDBPerActor).withDispatcher(fullPathToDispatcher))
+      userQueryActor = system.actorOf(
+        UserQueryActor.props(latch, numQueriesPerActor, numUsersInDBPerActor).withDispatcher(fullPathToDispatcher))
+      userServiceActor = system.actorOf(
+        UserServiceActor.props(latch, numQueriesPerActor, numUsersInDBPerActor).withDispatcher(fullPathToDispatcher))
     } yield (userQueryActor, userServiceActor)
     (actorsPairs, latch)
   }

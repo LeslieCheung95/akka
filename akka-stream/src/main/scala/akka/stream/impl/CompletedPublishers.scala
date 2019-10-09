@@ -1,12 +1,11 @@
-/**
- * Copyright (C) 2014-2017 Lightbend Inc. <http://www.lightbend.com>
+/*
+ * Copyright (C) 2014-2019 Lightbend Inc. <https://www.lightbend.com>
  */
+
 package akka.stream.impl
 
 import akka.annotation.InternalApi
 import org.reactivestreams.{ Publisher, Subscriber, Subscription }
-
-import scala.concurrent.{ ExecutionContext, Promise }
 
 /**
  * INTERNAL API
@@ -19,7 +18,7 @@ import scala.concurrent.{ ExecutionContext, Promise }
       tryOnSubscribe(subscriber, CancelledSubscription)
       tryOnComplete(subscriber)
     } catch {
-      case _: SpecViolation ⇒ // nothing we can do
+      case _: SpecViolation => // nothing we can do
     }
   def apply[T]: Publisher[T] = this.asInstanceOf[Publisher[T]]
   override def toString: String = "already-completed-publisher"
@@ -38,7 +37,7 @@ import scala.concurrent.{ ExecutionContext, Promise }
       tryOnSubscribe(subscriber, CancelledSubscription)
       tryOnError(subscriber, t)
     } catch {
-      case _: SpecViolation ⇒ // nothing we can do
+      case _: SpecViolation => // nothing we can do
     }
   def apply[T]: Publisher[T] = this.asInstanceOf[Publisher[T]]
   override def toString: String = name
@@ -70,8 +69,9 @@ import scala.concurrent.{ ExecutionContext, Promise }
 @InternalApi private[akka] case object RejectAdditionalSubscribers extends Publisher[Nothing] {
   import ReactiveStreamsCompliance._
   override def subscribe(subscriber: Subscriber[_ >: Nothing]): Unit =
-    try rejectAdditionalSubscriber(subscriber, "Publisher") catch {
-      case _: SpecViolation ⇒ // nothing we can do
+    try rejectAdditionalSubscriber(subscriber, "Publisher")
+    catch {
+      case _: SpecViolation => // nothing we can do
     }
   def apply[T]: Publisher[T] = this.asInstanceOf[Publisher[T]]
   override def toString: String = "already-subscribed-publisher"

@@ -1,14 +1,13 @@
-/**
- * Copyright (C) 2014-2017 Lightbend Inc. <http://www.lightbend.com>
+/*
+ * Copyright (C) 2014-2019 Lightbend Inc. <https://www.lightbend.com>
  */
+
 package akka.actor
 
-import akka.testkit.TestProbe
 import com.typesafe.config.ConfigFactory
 import org.openjdk.jmh.annotations._
 import java.util.concurrent.TimeUnit
 import scala.concurrent.Await
-import scala.annotation.tailrec
 import BenchmarkActors._
 import scala.concurrent.duration._
 
@@ -36,7 +35,12 @@ class ActorBenchmark {
   @Param(Array("50"))
   var batchSize = 0
 
-  @Param(Array("akka.actor.ManyToOneArrayMailbox")) //  @Param(Array("akka.dispatch.SingleConsumerOnlyUnboundedMailbox", "akka.actor.ManyToOneArrayMailbox"))
+  //@Param(Array("akka.actor.ManyToOneArrayMailbox"))
+  @Param(
+    Array(
+      "akka.dispatch.SingleConsumerOnlyUnboundedMailbox",
+      "akka.actor.ManyToOneArrayMailbox",
+      "akka.actor.JCToolsMailbox"))
   var mailbox = ""
 
   @Param(Array("fjp-dispatcher")) //  @Param(Array("fjp-dispatcher", "affinity-dispatcher"))
@@ -49,8 +53,9 @@ class ActorBenchmark {
 
     requireRightNumberOfCores(threads)
 
-    system = ActorSystem("ActorBenchmark", ConfigFactory.parseString(
-      s"""
+    system = ActorSystem(
+      "ActorBenchmark",
+      ConfigFactory.parseString(s"""
        akka.actor {
 
          default-mailbox.mailbox-capacity = 512
@@ -79,8 +84,7 @@ class ActorBenchmark {
             mailbox-type = "$mailbox"
          }
        }
-      """
-    ))
+      """))
   }
 
   @TearDown(Level.Trial)
@@ -95,4 +99,3 @@ class ActorBenchmark {
     benchmarkEchoActors(numMessagesPerActorPair, numActors, dispatcher, batchSize, timeout)
 
 }
-

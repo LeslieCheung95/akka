@@ -1,19 +1,15 @@
 /*
- * Copyright (C) 2016-2017 Lightbend Inc. <http://www.lightbend.com>
+ * Copyright (C) 2016-2019 Lightbend Inc. <https://www.lightbend.com>
  */
 
 package akka.remote.artery.compress
 
 import com.typesafe.config.ConfigFactory
 import akka.actor._
-import akka.pattern.ask
 import akka.remote.artery.compress.CompressionProtocol.Events
 import akka.testkit._
-import akka.util.Timeout
 import com.typesafe.config.ConfigFactory
-import org.scalatest.BeforeAndAfter
 
-import scala.concurrent.Await
 import scala.concurrent.duration._
 import akka.actor.ExtendedActorSystem
 import akka.serialization.SerializerWithStringManifest
@@ -26,7 +22,6 @@ object CompressionIntegrationSpec {
        loglevel = INFO
 
        actor {
-         serialize-messages = off
          serializers {
            test-message = "akka.remote.artery.compress.TestMessageSerializer"
          }
@@ -44,9 +39,9 @@ object CompressionIntegrationSpec {
 
 }
 
-class CompressionIntegrationSpec extends ArteryMultiNodeSpec(CompressionIntegrationSpec.commonConfig)
-  with ImplicitSender {
-  import CompressionIntegrationSpec._
+class CompressionIntegrationSpec
+    extends ArteryMultiNodeSpec(CompressionIntegrationSpec.commonConfig)
+    with ImplicitSender {
 
   val systemB = newRemoteSystem(name = Some("systemB"))
   val messagesToExchange = 10
@@ -56,8 +51,10 @@ class CompressionIntegrationSpec extends ArteryMultiNodeSpec(CompressionIntegrat
       // listen for compression table events
       val aManifestProbe = TestProbe()(system)
       val bManifestProbe = TestProbe()(systemB)
-      system.eventStream.subscribe(aManifestProbe.ref, classOf[CompressionProtocol.Events.ReceivedClassManifestCompressionTable])
-      systemB.eventStream.subscribe(bManifestProbe.ref, classOf[CompressionProtocol.Events.ReceivedClassManifestCompressionTable])
+      system.eventStream
+        .subscribe(aManifestProbe.ref, classOf[CompressionProtocol.Events.ReceivedClassManifestCompressionTable])
+      systemB.eventStream
+        .subscribe(bManifestProbe.ref, classOf[CompressionProtocol.Events.ReceivedClassManifestCompressionTable])
       val aRefProbe = TestProbe()(system)
       val bRefProbe = TestProbe()(systemB)
       system.eventStream.subscribe(aRefProbe.ref, classOf[CompressionProtocol.Events.ReceivedActorRefCompressionTable])
@@ -70,7 +67,9 @@ class CompressionIntegrationSpec extends ArteryMultiNodeSpec(CompressionIntegrat
 
       // cause TestMessage manifest to become a heavy hitter
       // cause echo to become a heavy hitter
-      (1 to messagesToExchange).foreach { i ⇒ echoRefA ! TestMessage("hello") }
+      (1 to messagesToExchange).foreach { _ =>
+        echoRefA ! TestMessage("hello")
+      }
       receiveN(messagesToExchange) // the replies
 
       within(10.seconds) {
@@ -194,15 +193,16 @@ class CompressionIntegrationSpec extends ArteryMultiNodeSpec(CompressionIntegrat
   "work when starting new ActorSystem with same hostname:port" in {
     val port = address(systemB).port.get
     shutdown(systemB)
-    val systemB2 = newRemoteSystem(
-      extraConfig = Some(s"akka.remote.artery.canonical.port=$port"),
-      name = Some("systemB"))
+    val systemB2 =
+      newRemoteSystem(extraConfig = Some(s"akka.remote.artery.canonical.port=$port"), name = Some("systemB"))
 
     // listen for compression table events
     val aManifestProbe = TestProbe()(system)
     val bManifestProbe = TestProbe()(systemB2)
-    system.eventStream.subscribe(aManifestProbe.ref, classOf[CompressionProtocol.Events.ReceivedClassManifestCompressionTable])
-    systemB2.eventStream.subscribe(bManifestProbe.ref, classOf[CompressionProtocol.Events.ReceivedClassManifestCompressionTable])
+    system.eventStream
+      .subscribe(aManifestProbe.ref, classOf[CompressionProtocol.Events.ReceivedClassManifestCompressionTable])
+    systemB2.eventStream
+      .subscribe(bManifestProbe.ref, classOf[CompressionProtocol.Events.ReceivedClassManifestCompressionTable])
     val aRefProbe = TestProbe()(system)
     val bRefProbe = TestProbe()(systemB2)
     system.eventStream.subscribe(aRefProbe.ref, classOf[CompressionProtocol.Events.ReceivedActorRefCompressionTable])
@@ -223,7 +223,9 @@ class CompressionIntegrationSpec extends ArteryMultiNodeSpec(CompressionIntegrat
     val echoRefA = expectMsgType[ActorIdentity].ref.get
 
     // cause TestMessage manifest to become a heavy hitter
-    (1 to messagesToExchange).foreach { i ⇒ echoRefA ! TestMessage("hello") }
+    (1 to messagesToExchange).foreach { _ =>
+      echoRefA ! TestMessage("hello")
+    }
     receiveN(messagesToExchange) // the replies
 
     within(10.seconds) {
@@ -261,9 +263,11 @@ class CompressionIntegrationSpec extends ArteryMultiNodeSpec(CompressionIntegrat
   }
 
   "wrap around" in {
-    val extraConfig = """
+    val extraConfig =
+      """
       akka.remote.artery.advanced.compression {
-        actor-refs.advertisement-interval = 10 millis
+        actor-refs.advertisement-interval = 100 millis
+        manifests.advertisement-interval = 10 minutes
       }
     """
 
@@ -275,40 +279,65 @@ class CompressionIntegrationSpec extends ArteryMultiNodeSpec(CompressionIntegrat
       classOf[CompressionProtocol.Events.ReceivedActorRefCompressionTable])
 
     def createAndIdentify(i: Int) = {
-      val echoWrap = systemWrap.actorOf(TestActors.echoActorProps, s"echo_$i")
+      systemWrap.actorOf(TestActors.echoActorProps, s"echo_$i")
       system.actorSelection(rootActorPath(systemWrap) / "user" / s"echo_$i") ! Identify(None)
       expectMsgType[ActorIdentity].ref.get
     }
 
-    val maxTableVersions = 130 // so table version wraps around at least once
-    var lastVersion = 0
+    var seenTableVersions = List.empty[Int]
+    // iterate from 2, since our assertion wants the locally created actor to be included in the table
+    // which will only happen in the 2nd advertisement the earliest.
+    val upToNTablesAcceptedAfterWrap = 6
+    var remainingExpectedTableVersions =
+      (Iterator.from(2).take(126) ++ Iterator.from(0).take(upToNTablesAcceptedAfterWrap + 1)).toList
+
+    // so table version wraps around at least once
     var lastTable: CompressionTable[ActorRef] = null
     var allRefs: List[ActorRef] = Nil
 
-    for (iteration ← 1 to maxTableVersions) {
-      val echoWrap = createAndIdentify(iteration) // create a different actor for every iteration
-      allRefs ::= echoWrap
+    within(3.minutes) {
+      var iteration = 0
+      while (remainingExpectedTableVersions.nonEmpty) {
+        iteration += 1
+        val echoWrap = createAndIdentify(iteration) // create a different actor for every iteration
+        allRefs ::= echoWrap
 
-      // cause echo to become a heavy hitter
-      (1 to messagesToExchange).foreach { i ⇒ echoWrap ! TestMessage("hello") }
-      receiveN(messagesToExchange) // the replies
+        // cause echo to become a heavy hitter
+        (1 to messagesToExchange).foreach { _ =>
+          echoWrap ! TestMessage("hello")
+        }
+        receiveN(messagesToExchange) // the replies
 
-      // discard duplicates with awaitAssert until we receive next version
-      var currentTable: CompressionTable[ActorRef] = null
-      receivedActorRefCompressionTableProbe.awaitAssert {
-        currentTable =
-          receivedActorRefCompressionTableProbe.expectMsgType[Events.ReceivedActorRefCompressionTable](2.seconds).table
-        // Until we get a new version, discard duplicates or old advertisements.
-        // Please note that we might not get the advertisements in order
-        allRefs.forall(ref ⇒ currentTable.dictionary.contains(ref)) should be(true)
+        var currentTable: CompressionTable[ActorRef] = null
+        receivedActorRefCompressionTableProbe.awaitAssert({
+          // discard duplicates with awaitAssert until we receive next version
+          val receivedActorRefCompressionTable =
+            receivedActorRefCompressionTableProbe.expectMsgType[Events.ReceivedActorRefCompressionTable](10.seconds)
+
+          currentTable = receivedActorRefCompressionTable.table
+          seenTableVersions = currentTable.version :: seenTableVersions
+        }, max = 10.seconds)
+
+        // debugging: info("Seen versions: " + seenTableVersions)
+        lastTable = currentTable
+
+        // distance between delivered versions, must not be greater than 2
+        //  - this allows for some "wiggle room" for redeliveries
+        //  - this is linked with the number of old tables we keep around in the impl, see `keepOldTables`
+        (((currentTable.version - lastTable.version) & 127) <= 2) should be(true)
+
+        def removeFirst(l: List[Int], it: Int): List[Int] = l match {
+          case Nil           => Nil
+          case `it` :: tail  => tail
+          case other :: tail => other :: removeFirst(tail, it)
+        }
+
+        remainingExpectedTableVersions = removeFirst(remainingExpectedTableVersions, lastTable.version)
       }
-      currentTable.version should !==(lastVersion)
-      lastTable = currentTable
-      (((currentTable.version - lastTable.version) & 0x7F) <= 2) should be(true)
-      lastVersion = lastTable.version
-    }
 
-    lastTable.version.toInt should be < (128)
+      remainingExpectedTableVersions shouldBe empty
+      lastTable.version.toInt should be <= upToNTablesAcceptedAfterWrap // definitely, since we expected to wrap around and start from 0 again
+    }
   }
 
 }
@@ -323,17 +352,17 @@ class TestMessageSerializer(val system: ExtendedActorSystem) extends SerializerW
 
   override def manifest(o: AnyRef): String =
     o match {
-      case _: TestMessage ⇒ TestMessageManifest
+      case _: TestMessage => TestMessageManifest
     }
 
   override def toBinary(o: AnyRef): Array[Byte] = o match {
-    case msg: TestMessage ⇒ msg.name.getBytes
+    case msg: TestMessage => msg.name.getBytes
   }
 
   override def fromBinary(bytes: Array[Byte], manifest: String): AnyRef = {
     manifest match {
-      case TestMessageManifest ⇒ TestMessage(new String(bytes))
-      case unknown             ⇒ throw new Exception("Unknown manifest: " + unknown)
+      case TestMessageManifest => TestMessage(new String(bytes))
+      case unknown             => throw new Exception("Unknown manifest: " + unknown)
     }
   }
 }

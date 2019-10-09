@@ -1,6 +1,7 @@
-/**
- * Copyright (C) 2015-2017 Lightbend Inc. <http://www.lightbend.com>
+/*
+ * Copyright (C) 2015-2019 Lightbend Inc. <https://www.lightbend.com>
  */
+
 package akka.persistence.query.journal.leveldb.scaladsl
 
 import java.net.URLEncoder
@@ -8,11 +9,18 @@ import java.net.URLEncoder
 import akka.NotUsed
 import akka.actor.ExtendedActorSystem
 import akka.event.Logging
-import akka.persistence.query.journal.leveldb.{ AllPersistenceIdsPublisher, EventsByPersistenceIdPublisher, EventsByTagPublisher }
-import akka.persistence.query.scaladsl.{ ReadJournal, _ }
-import akka.persistence.query.{ EventEnvelope, NoOffset, Offset, Sequence }
+import akka.persistence.query.journal.leveldb.AllPersistenceIdsStage
+import akka.persistence.query.journal.leveldb.EventsByPersistenceIdStage
+import akka.persistence.query.journal.leveldb.EventsByTagStage
+import akka.persistence.query.scaladsl.ReadJournal
+import akka.persistence.query.scaladsl._
+import akka.persistence.query.EventEnvelope
+import akka.persistence.query.NoOffset
+import akka.persistence.query.Offset
+import akka.persistence.query.Sequence
 import akka.stream.scaladsl.Source
 import akka.util.ByteString
+import akka.util.unused
 import com.typesafe.config.Config
 
 import scala.concurrent.duration._
@@ -31,17 +39,21 @@ import scala.concurrent.duration._
  * absolute path corresponding to the identifier, which is `"akka.persistence.query.journal.leveldb"`
  * for the default [[LeveldbReadJournal#Identifier]]. See `reference.conf`.
  */
-class LeveldbReadJournal(system: ExtendedActorSystem, config: Config) extends ReadJournal
-  with PersistenceIdsQuery with CurrentPersistenceIdsQuery
-  with EventsByPersistenceIdQuery with CurrentEventsByPersistenceIdQuery
-  with EventsByTagQuery with CurrentEventsByTagQuery {
+class LeveldbReadJournal(@unused system: ExtendedActorSystem, config: Config)
+    extends ReadJournal
+    with PersistenceIdsQuery
+    with CurrentPersistenceIdsQuery
+    with EventsByPersistenceIdQuery
+    with CurrentEventsByPersistenceIdQuery
+    with EventsByTagQuery
+    with CurrentEventsByTagQuery {
 
   private val refreshInterval = Some(config.getDuration("refresh-interval", MILLISECONDS).millis)
   private val writeJournalPluginId: String = config.getString("write-plugin")
   private val maxBufSize: Int = config.getInt("max-buffer-size")
 
   /**
-   * `allPersistenceIds` is used for retrieving all `persistenceIds` of all
+   * `persistenceIds` is used for retrieving all `persistenceIds` of all
    * persistent actors.
    *
    * The returned event stream is unordered and you can expect different order for multiple
@@ -58,23 +70,17 @@ class LeveldbReadJournal(system: ExtendedActorSystem, config: Config) extends Re
    * The stream is completed with failure if there is a failure in executing the query in the
    * backend journal.
    */
-  override def persistenceIds(): Source[String, NotUsed] = {
+  override def persistenceIds(): Source[String, NotUsed] =
     // no polling for this query, the write journal will push all changes, i.e. no refreshInterval
-    Source.actorPublisher[String](AllPersistenceIdsPublisher.props(liveQuery = true, maxBufSize, writeJournalPluginId))
-      .mapMaterializedValue(_ ⇒ NotUsed)
-      .named("allPersistenceIds")
-  }
+    Source.fromGraph(new AllPersistenceIdsStage(liveQuery = true, writeJournalPluginId)).named("allPersistenceIds")
 
   /**
-   * Same type of query as [[#allPersistenceIds]] but the stream
+   * Same type of query as [[#persistenceIds]] but the stream
    * is completed immediately when it reaches the end of the "result set". Persistent
    * actors that are created after the query is completed are not included in the stream.
    */
-  override def currentPersistenceIds(): Source[String, NotUsed] = {
-    Source.actorPublisher[String](AllPersistenceIdsPublisher.props(liveQuery = false, maxBufSize, writeJournalPluginId))
-      .mapMaterializedValue(_ ⇒ NotUsed)
-      .named("currentPersistenceIds")
-  }
+  override def currentPersistenceIds(): Source[String, NotUsed] =
+    Source.fromGraph(new AllPersistenceIdsStage(liveQuery = false, writeJournalPluginId)).named("allPersistenceIds")
 
   /**
    * `eventsByPersistenceId` is used for retrieving events for a specific
@@ -102,11 +108,25 @@ class LeveldbReadJournal(system: ExtendedActorSystem, config: Config) extends Re
    * The stream is completed with failure if there is a failure in executing the query in the
    * backend journal.
    */
-  override def eventsByPersistenceId(persistenceId: String, fromSequenceNr: Long = 0L,
-                                     toSequenceNr: Long = Long.MaxValue): Source[EventEnvelope, NotUsed] = {
-    Source.actorPublisher[EventEnvelope](EventsByPersistenceIdPublisher.props(persistenceId, fromSequenceNr, toSequenceNr,
-      refreshInterval, maxBufSize, writeJournalPluginId)).mapMaterializedValue(_ ⇒ NotUsed)
-      .named("eventsByPersistenceId-" + persistenceId)
+  override def eventsByPersistenceId(
+      persistenceId: String,
+      fromSequenceNr: Long = 0L,
+      toSequenceNr: Long = Long.MaxValue): Source[EventEnvelope, NotUsed] = {
+    Source
+      .fromMaterializer { (mat, _) =>
+        Source
+          .fromGraph(
+            new EventsByPersistenceIdStage(
+              persistenceId,
+              fromSequenceNr,
+              toSequenceNr,
+              maxBufSize,
+              writeJournalPluginId,
+              refreshInterval,
+              mat))
+          .named("eventsByPersistenceId-" + persistenceId)
+      }
+      .mapMaterializedValue(_ => NotUsed)
   }
 
   /**
@@ -114,11 +134,26 @@ class LeveldbReadJournal(system: ExtendedActorSystem, config: Config) extends Re
    * is completed immediately when it reaches the end of the "result set". Events that are
    * stored after the query is completed are not included in the event stream.
    */
-  override def currentEventsByPersistenceId(persistenceId: String, fromSequenceNr: Long = 0L,
-                                            toSequenceNr: Long = Long.MaxValue): Source[EventEnvelope, NotUsed] = {
-    Source.actorPublisher[EventEnvelope](EventsByPersistenceIdPublisher.props(persistenceId, fromSequenceNr, toSequenceNr,
-      None, maxBufSize, writeJournalPluginId)).mapMaterializedValue(_ ⇒ NotUsed)
-      .named("currentEventsByPersistenceId-" + persistenceId)
+  override def currentEventsByPersistenceId(
+      persistenceId: String,
+      fromSequenceNr: Long = 0L,
+      toSequenceNr: Long = Long.MaxValue): Source[EventEnvelope, NotUsed] = {
+    Source
+      .fromMaterializer { (mat, _) =>
+        Source
+          .fromGraph(
+            new EventsByPersistenceIdStage(
+              persistenceId,
+              fromSequenceNr,
+              toSequenceNr,
+              maxBufSize,
+              writeJournalPluginId,
+              None,
+              mat))
+          .named("currentEventsByPersistenceId-" + persistenceId)
+      }
+      .mapMaterializedValue(_ => NotUsed)
+
   }
 
   /**
@@ -162,14 +197,16 @@ class LeveldbReadJournal(system: ExtendedActorSystem, config: Config) extends Re
    */
   override def eventsByTag(tag: String, offset: Offset = Sequence(0L)): Source[EventEnvelope, NotUsed] =
     offset match {
-      case seq: Sequence ⇒
-        Source.actorPublisher[EventEnvelope](EventsByTagPublisher.props(tag, seq.value, Long.MaxValue,
-          refreshInterval, maxBufSize, writeJournalPluginId))
-          .mapMaterializedValue(_ ⇒ NotUsed)
+      case seq: Sequence =>
+        Source
+          .fromGraph(
+            new EventsByTagStage(tag, seq.value, maxBufSize, Long.MaxValue, writeJournalPluginId, refreshInterval))
           .named("eventsByTag-" + URLEncoder.encode(tag, ByteString.UTF_8))
-      case NoOffset ⇒ eventsByTag(tag, Sequence(0L)) //recursive
-      case _ ⇒
-        throw new IllegalArgumentException("LevelDB does not support " + Logging.simpleName(offset.getClass) + " offsets")
+
+      case NoOffset => eventsByTag(tag, Sequence(0L)) //recursive
+      case _ =>
+        throw new IllegalArgumentException(
+          "LevelDB does not support " + Logging.simpleName(offset.getClass) + " offsets")
     }
 
   /**
@@ -179,18 +216,20 @@ class LeveldbReadJournal(system: ExtendedActorSystem, config: Config) extends Re
    */
   override def currentEventsByTag(tag: String, offset: Offset = Sequence(0L)): Source[EventEnvelope, NotUsed] =
     offset match {
-      case seq: Sequence ⇒
-        Source.actorPublisher[EventEnvelope](EventsByTagPublisher.props(tag, seq.value, Long.MaxValue,
-          None, maxBufSize, writeJournalPluginId)).mapMaterializedValue(_ ⇒ NotUsed)
+      case seq: Sequence =>
+        Source
+          .fromGraph(new EventsByTagStage(tag, seq.value, maxBufSize, Long.MaxValue, writeJournalPluginId, None))
           .named("currentEventsByTag-" + URLEncoder.encode(tag, ByteString.UTF_8))
-      case NoOffset ⇒ currentEventsByTag(tag, Sequence(0L)) //recursive
-      case _ ⇒
-        throw new IllegalArgumentException("LevelDB does not support " + Logging.simpleName(offset.getClass) + " offsets")
+      case NoOffset => currentEventsByTag(tag, Sequence(0L))
+      case _ =>
+        throw new IllegalArgumentException(
+          "LevelDB does not support " + Logging.simpleName(offset.getClass) + " offsets")
     }
 
 }
 
 object LeveldbReadJournal {
+
   /**
    * The default identifier for [[LeveldbReadJournal]] to be used with
    * [[akka.persistence.query.PersistenceQuery#readJournalFor]].
@@ -200,4 +239,3 @@ object LeveldbReadJournal {
    */
   final val Identifier = "akka.persistence.query.journal.leveldb"
 }
-

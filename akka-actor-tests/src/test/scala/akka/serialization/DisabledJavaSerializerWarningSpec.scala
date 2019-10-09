@@ -1,6 +1,7 @@
-/**
- * Copyright (C) 2017 Lightbend Inc. <http://www.lightbend.com>
+/*
+ * Copyright (C) 2017-2019 Lightbend Inc. <https://www.lightbend.com>
  */
+
 package akka.serialization
 
 import java.nio.{ ByteBuffer, ByteOrder }
@@ -14,11 +15,11 @@ object DisabledJavaSerializerWarningSpec {
   final case class Msg(s: String)
 }
 
-class DisabledJavaSerializerWarningSpec extends AkkaSpec(
-  """
+class DisabledJavaSerializerWarningSpec extends AkkaSpec("""
   akka.actor {
     allow-java-serialization = off
     serialize-messages = on
+    no-serialization-verification-needed-class-prefix = []
     # this is by default on, but tests are running with off
     warn-about-java-serializer-usage = on
   }
@@ -32,7 +33,7 @@ class DisabledJavaSerializerWarningSpec extends AkkaSpec(
       EventFilter.warning(start = "Outgoing message attempted to use Java Serialization", occurrences = 1).intercept {
         val echo = system.actorOf(TestActors.echoActorProps)
         echo ! List("a")
-        expectNoMsg(300.millis)
+        expectNoMessage(300.millis)
       }
 
     }

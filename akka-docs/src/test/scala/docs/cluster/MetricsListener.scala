@@ -1,3 +1,7 @@
+/*
+ * Copyright (C) 2018-2019 Lightbend Inc. <https://www.lightbend.com>
+ */
+
 package scala.docs.cluster
 
 //#metrics-listener
@@ -24,7 +28,7 @@ class MetricsListener extends Actor with ActorLogging {
 
   def receive = {
     case ClusterMetricsChanged(clusterMetrics) =>
-      clusterMetrics.filter(_.address == selfAddress) foreach { nodeMetrics =>
+      clusterMetrics.filter(_.address == selfAddress).foreach { nodeMetrics =>
         logHeap(nodeMetrics)
         logCpu(nodeMetrics)
       }

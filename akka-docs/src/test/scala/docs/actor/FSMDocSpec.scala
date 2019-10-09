@@ -1,6 +1,7 @@
-/**
- * Copyright (C) 2009-2017 Lightbend Inc. <http://www.lightbend.com>
+/*
+ * Copyright (C) 2009-2019 Lightbend Inc. <https://www.lightbend.com>
  */
+
 package docs.actor
 
 import language.postfixOps
@@ -55,7 +56,7 @@ class FSMDocSpec extends MyFavoriteTestFrameWorkPlusAkkaTestKit {
     //#when-syntax
     when(Idle) {
       case Event(SetTarget(ref), Uninitialized) =>
-        stay using Todo(ref, Vector.empty)
+        stay.using(Todo(ref, Vector.empty))
     }
     //#when-syntax
 
@@ -72,7 +73,7 @@ class FSMDocSpec extends MyFavoriteTestFrameWorkPlusAkkaTestKit {
 
     when(Active, stateTimeout = 1 second) {
       case Event(Flush | StateTimeout, t: Todo) =>
-        goto(Idle) using t.copy(queue = Vector.empty)
+        goto(Idle).using(t.copy(queue = Vector.empty))
     }
     //#when-syntax
 
@@ -80,7 +81,7 @@ class FSMDocSpec extends MyFavoriteTestFrameWorkPlusAkkaTestKit {
     whenUnhandled {
       // common code for both states
       case Event(Queue(obj), t @ Todo(_, v)) =>
-        goto(Active) using t.copy(queue = v :+ obj)
+        goto(Active).using(t.copy(queue = v :+ obj))
 
       case Event(e, s) =>
         log.warning("received unhandled request {} in state {}/{}", e, stateName, s)
@@ -109,13 +110,13 @@ class FSMDocSpec extends MyFavoriteTestFrameWorkPlusAkkaTestKit {
       //#modifier-syntax
       when(SomeState) {
         case Event(msg, _) =>
-          goto(Processing) using (newData) forMax (5 seconds) replying (WillDo)
+          goto(Processing).using(newData).forMax(5 seconds).replying(WillDo)
       }
       //#modifier-syntax
 
       //#transition-syntax
       onTransition {
-        case Idle -> Active => setTimer("timeout", Tick, 1 second, repeat = true)
+        case Idle -> Active => startTimerWithFixedDelay("timeout", Tick, 1 second)
         case Active -> _    => cancelTimer("timeout")
         case x -> Idle      => log.info("entering Idle from " + x)
       }
@@ -124,7 +125,7 @@ class FSMDocSpec extends MyFavoriteTestFrameWorkPlusAkkaTestKit {
       //#alt-transition-syntax
       onTransition(handler _)
 
-      def handler(from: StateType, to: StateType) {
+      def handler(from: StateType, to: StateType): Unit = {
         // handle it here ...
       }
       //#alt-transition-syntax
@@ -139,8 +140,8 @@ class FSMDocSpec extends MyFavoriteTestFrameWorkPlusAkkaTestKit {
 
       //#transform-syntax
       when(SomeState)(transform {
-        case Event(bytes: ByteString, read) => stay using (read + bytes.length)
-      } using {
+        case Event(bytes: ByteString, read) => stay.using(read + bytes.length)
+      }.using {
         case s @ FSM.State(state, read, timeout, stopReason, replies) if read > 1000 =>
           goto(Processing)
       })
@@ -153,8 +154,8 @@ class FSMDocSpec extends MyFavoriteTestFrameWorkPlusAkkaTestKit {
       }
 
       when(SomeState)(transform {
-        case Event(bytes: ByteString, read) => stay using (read + bytes.length)
-      } using processingTrigger)
+        case Event(bytes: ByteString, read) => stay.using(read + bytes.length)
+      }.using(processingTrigger))
       //#alt-transform-syntax
 
       //#termination-syntax
@@ -186,7 +187,8 @@ class FSMDocSpec extends MyFavoriteTestFrameWorkPlusAkkaTestKit {
       onTermination {
         case StopEvent(FSM.Failure(_), state, data) =>
           val lastEvents = getLog.mkString("\n\t")
-          log.warning("Failure in state " + state + " with data " + data + "\n" +
+          log.warning(
+            "Failure in state " + state + " with data " + data + "\n" +
             "Events leading up to this point:\n\t" + lastEvents)
       }
       // ...

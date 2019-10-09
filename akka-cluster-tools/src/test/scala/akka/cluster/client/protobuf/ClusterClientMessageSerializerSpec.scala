@@ -1,12 +1,15 @@
-/**
- * Copyright (C) 2015-2017 Lightbend Inc. <http://www.lightbend.com>
+/*
+ * Copyright (C) 2015-2019 Lightbend Inc. <https://www.lightbend.com>
  */
+
 package akka.cluster.client.protobuf
 
 import akka.actor.ExtendedActorSystem
 import akka.testkit.AkkaSpec
 import akka.cluster.client.ClusterReceptionist.Internal._
+import com.github.ghik.silencer.silent
 
+@silent("deprecated")
 class ClusterClientMessageSerializerSpec extends AkkaSpec {
 
   val serializer = new ClusterClientMessageSerializer(system.asInstanceOf[ExtendedActorSystem])
@@ -21,13 +24,14 @@ class ClusterClientMessageSerializerSpec extends AkkaSpec {
 
     "be serializable" in {
       val contactPoints = Vector(
-        "akka.tcp://system@node-1:2552/system/receptionist",
-        "akka.tcp://system@node-2:2552/system/receptionist",
-        "akka.tcp://system@node-3:2552/system/receptionist")
+        "akka://system@node-1:2552/system/receptionist",
+        "akka://system@node-2:2552/system/receptionist",
+        "akka://system@node-3:2552/system/receptionist")
       checkSerialization(Contacts(contactPoints))
       checkSerialization(GetContacts)
       checkSerialization(Heartbeat)
       checkSerialization(HeartbeatRsp)
+      checkSerialization(ReceptionistShutdown)
     }
   }
 }

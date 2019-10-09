@@ -1,20 +1,84 @@
-/**
- * Copyright (C) 2015-2017 Lightbend Inc. <http://www.lightbend.com>
+/*
+ * Copyright (C) 2015-2019 Lightbend Inc. <https://www.lightbend.com>
  */
 
 package akka.stream.impl.fusing
 
+import akka.actor.ActorSystem
+import akka.actor.Cancellable
+import akka.actor.Props
+import akka.annotation.InternalApi
 import akka.event.Logging
 import akka.stream.Supervision.Decider
 import akka.stream._
-import akka.stream.impl.fusing.GraphInterpreter.{ Connection, DownstreamBoundaryStageLogic, Failed, UpstreamBoundaryStageLogic }
+import akka.stream.impl.fusing.GraphInterpreter.{
+  Connection,
+  DownstreamBoundaryStageLogic,
+  Failed,
+  UpstreamBoundaryStageLogic
+}
 import akka.stream.stage.{ GraphStage, GraphStageLogic, InHandler, OutHandler, _ }
 import akka.stream.testkit.StreamSpec
 import akka.stream.testkit.Utils.TE
+import com.github.ghik.silencer.silent
 
-import scala.collection.{ Map ⇒ SMap }
-import scala.language.existentials
+import scala.collection.{ Map => SMap }
+import scala.concurrent.ExecutionContextExecutor
+import scala.concurrent.duration.FiniteDuration
 
+/**
+ * INTERNAL API
+ */
+@InternalApi
+private[akka] object NoMaterializer extends Materializer {
+  override def withNamePrefix(name: String): Materializer =
+    throw new UnsupportedOperationException("NoMaterializer cannot be named")
+  override def materialize[Mat](runnable: Graph[ClosedShape, Mat]): Mat =
+    throw new UnsupportedOperationException("NoMaterializer cannot materialize")
+  override def materialize[Mat](runnable: Graph[ClosedShape, Mat], defaultAttributes: Attributes): Mat =
+    throw new UnsupportedOperationException("NoMaterializer cannot materialize")
+
+  override def executionContext: ExecutionContextExecutor =
+    throw new UnsupportedOperationException("NoMaterializer does not provide an ExecutionContext")
+
+  def scheduleOnce(delay: FiniteDuration, task: Runnable): Cancellable =
+    throw new UnsupportedOperationException("NoMaterializer cannot schedule a single event")
+
+  def schedulePeriodically(initialDelay: FiniteDuration, interval: FiniteDuration, task: Runnable): Cancellable =
+    throw new UnsupportedOperationException("NoMaterializer cannot schedule a repeated event")
+
+  override def scheduleWithFixedDelay(
+      initialDelay: FiniteDuration,
+      delay: FiniteDuration,
+      task: Runnable): Cancellable =
+    throw new UnsupportedOperationException("NoMaterializer cannot scheduleWithFixedDelay")
+
+  override def scheduleAtFixedRate(
+      initialDelay: FiniteDuration,
+      interval: FiniteDuration,
+      task: Runnable): Cancellable =
+    throw new UnsupportedOperationException("NoMaterializer cannot scheduleAtFixedRate")
+
+  override def shutdown(): Unit = throw new UnsupportedOperationException("NoMaterializer cannot shutdown")
+
+  override def isShutdown: Boolean = throw new UnsupportedOperationException("NoMaterializer cannot shutdown")
+
+  override def system: ActorSystem =
+    throw new UnsupportedOperationException("NoMaterializer does not have an actorsystem")
+
+  override private[akka] def logger = throw new UnsupportedOperationException("NoMaterializer does not have a logger")
+
+  override private[akka] def supervisor =
+    throw new UnsupportedOperationException("NoMaterializer does not have a supervisor")
+
+  override private[akka] def actorOf(context: MaterializationContext, props: Props) =
+    throw new UnsupportedOperationException("NoMaterializer cannot spawn actors")
+
+  override def settings: ActorMaterializerSettings =
+    throw new UnsupportedOperationException("NoMaterializer does not have settings")
+}
+
+@silent
 object GraphInterpreterSpecKit {
 
   /**
@@ -28,10 +92,11 @@ object GraphInterpreterSpecKit {
    * @return Created logics and the maps of all inlets respective outlets to those logics
    */
   private[stream] def createLogics(
-    stages:      Array[GraphStageWithMaterializedValue[_ <: Shape, _]],
-    upstreams:   Array[UpstreamBoundaryStageLogic[_]],
-    downstreams: Array[DownstreamBoundaryStageLogic[_]],
-    attributes:  Array[Attributes]                                     = Array.empty): (Array[GraphStageLogic], SMap[Inlet[_], GraphStageLogic], SMap[Outlet[_], GraphStageLogic]) = {
+      stages: Array[GraphStageWithMaterializedValue[_ <: Shape, _]],
+      upstreams: Array[UpstreamBoundaryStageLogic[_]],
+      downstreams: Array[DownstreamBoundaryStageLogic[_]],
+      attributes: Array[Attributes] = Array.empty)
+      : (Array[GraphStageLogic], SMap[Inlet[_], GraphStageLogic], SMap[Outlet[_], GraphStageLogic]) = {
     if (attributes.nonEmpty && attributes.length != stages.length)
       throw new IllegalArgumentException("Attributes must be either empty or one per stage")
 
@@ -46,7 +111,7 @@ object GraphInterpreterSpecKit {
       upstream.stageId = idx
       logics(idx) = upstream
       upstream.out.id = 0
-      outOwners = outOwners + (upstream.out → upstream)
+      outOwners = outOwners + (upstream.out -> upstream)
       idx += 1
     }
 
@@ -66,7 +131,7 @@ object GraphInterpreterSpecKit {
       while (inletIdx < stage.shape.inlets.length) {
         val inlet = stage.shape.inlets(inletIdx)
         inlet.id = inletIdx
-        inOwners = inOwners + (inlet → logic)
+        inOwners = inOwners + (inlet -> logic)
         inletIdx += 1
       }
 
@@ -74,7 +139,7 @@ object GraphInterpreterSpecKit {
       while (outletIdx < stage.shape.outlets.length) {
         val outlet = stage.shape.outlets(outletIdx)
         outlet.id = outletIdx
-        outOwners = outOwners + (outlet → logic)
+        outOwners = outOwners + (outlet -> logic)
         outletIdx += 1
       }
       logics(idx) = logic
@@ -89,7 +154,7 @@ object GraphInterpreterSpecKit {
       downstream.stageId = idx
       logics(idx) = downstream
       downstream.in.id = 0
-      inOwners = inOwners + (downstream.in → downstream)
+      inOwners = inOwners + (downstream.in -> downstream)
 
       idx += 1
       downstreamIdx += 1
@@ -103,39 +168,40 @@ object GraphInterpreterSpecKit {
    */
   private[stream] def createLinearFlowConnections(logics: Seq[GraphStageLogic]): Array[Connection] = {
     require(logics.length >= 2, s"$logics is too short to create a linear flow")
-    logics.sliding(2).zipWithIndex.map {
-      case (window, idx) ⇒
-        val outOwner = window(0)
-        val inOwner = window(1)
+    logics
+      .sliding(2)
+      .zipWithIndex
+      .map {
+        case (window, idx) =>
+          val outOwner = window(0)
+          val inOwner = window(1)
 
-        val connection = new Connection(
-          id = idx,
-          outOwner = outOwner,
-          outHandler = outOwner.outHandler(0),
-          inOwner = inOwner,
-          inHandler = inOwner.inHandler(0)
-        )
+          val connection = new Connection(
+            id = idx,
+            outOwner = outOwner,
+            outHandler = outOwner.outHandler(0),
+            inOwner = inOwner,
+            inHandler = inOwner.inHandler(0))
 
-        outOwner.portToConn(outOwner.inCount) = connection
-        inOwner.portToConn(0) = connection
+          outOwner.portToConn(outOwner.inCount) = connection
+          inOwner.portToConn(0) = connection
 
-        connection
-    }.toArray
+          connection
+      }
+      .toArray
   }
 
   /**
    * Create interpreter connections for all the given `connectedPorts`.
    */
   private[stream] def createConnections(
-    logics:         Seq[GraphStageLogic],
-    connectedPorts: Seq[(Outlet[_], Inlet[_])],
-    inOwners:       SMap[Inlet[_], GraphStageLogic],
-    outOwners:      SMap[Outlet[_], GraphStageLogic]): Array[Connection] = {
+      connectedPorts: Seq[(Outlet[_], Inlet[_])],
+      inOwners: SMap[Inlet[_], GraphStageLogic],
+      outOwners: SMap[Outlet[_], GraphStageLogic]): Array[Connection] = {
 
     val connections = new Array[Connection](connectedPorts.size)
     connectedPorts.zipWithIndex.foreach {
-      case ((outlet, inlet), idx) ⇒
-
+      case ((outlet, inlet), idx) =>
         val outOwner = outOwners(outlet)
         val inOwner = inOwners(inlet)
 
@@ -144,8 +210,7 @@ object GraphInterpreterSpecKit {
           outOwner = outOwner,
           outHandler = outOwner.outHandler(outlet.id),
           inOwner = inOwner,
-          inHandler = inOwner.inHandler(inlet.id)
-        )
+          inHandler = inOwner.inHandler(inlet.id))
 
         connections(idx) = connection
         inOwner.portToConn(inlet.id) = connection
@@ -156,20 +221,20 @@ object GraphInterpreterSpecKit {
 
   private def setPortIds(shape: Shape): Unit = {
     shape.inlets.zipWithIndex.foreach {
-      case (inlet, idx) ⇒ inlet.id = idx
+      case (inlet, idx) => inlet.id = idx
     }
     shape.outlets.zipWithIndex.foreach {
-      case (outlet, idx) ⇒ outlet.id = idx
+      case (outlet, idx) => outlet.id = idx
     }
   }
 
   private def setPortIds(stage: GraphStageWithMaterializedValue[_ <: Shape, _]): Unit = {
-    stage.shape.inlets.zipWithIndex.foreach { case (inlet, idx) ⇒ inlet.id = idx }
-    stage.shape.outlets.zipWithIndex.foreach { case (inlet, idx) ⇒ inlet.id = idx }
+    stage.shape.inlets.zipWithIndex.foreach { case (inlet, idx)  => inlet.id = idx }
+    stage.shape.outlets.zipWithIndex.foreach { case (inlet, idx) => inlet.id = idx }
   }
 
   private def setLogicIds(logics: Array[GraphStageLogic]): Unit = {
-    logics.zipWithIndex.foreach { case (logic, idx) ⇒ logic.stageId = idx }
+    logics.zipWithIndex.foreach { case (logic, idx) => logic.stageId = idx }
   }
 
 }
@@ -216,31 +281,31 @@ trait GraphInterpreterSpecKit extends StreamSpec {
       override def toString = "Downstream"
     }
 
-    class AssemblyBuilder(stages: Seq[GraphStageWithMaterializedValue[_ <: Shape, _]]) {
+    class AssemblyBuilder(operators: Seq[GraphStageWithMaterializedValue[_ <: Shape, _]]) {
       private var upstreams = Vector.empty[UpstreamBoundaryStageLogic[_]]
       private var downstreams = Vector.empty[DownstreamBoundaryStageLogic[_]]
       private var connectedPorts = Vector.empty[(Outlet[_], Inlet[_])]
 
       def connect[T](upstream: UpstreamBoundaryStageLogic[T], in: Inlet[T]): AssemblyBuilder = {
         upstreams :+= upstream
-        connectedPorts :+= upstream.out → in
+        connectedPorts :+= upstream.out -> in
         this
       }
 
       def connect[T](out: Outlet[T], downstream: DownstreamBoundaryStageLogic[T]): AssemblyBuilder = {
         downstreams :+= downstream
-        connectedPorts :+= out → downstream.in
+        connectedPorts :+= out -> downstream.in
         this
       }
 
       def connect[T](out: Outlet[T], in: Inlet[T]): AssemblyBuilder = {
-        connectedPorts :+= out → in
+        connectedPorts :+= out -> in
         this
       }
 
       def init(): Unit = {
-        val (logics, inOwners, outOwners) = createLogics(stages.toArray, upstreams.toArray, downstreams.toArray)
-        val conns = createConnections(logics, connectedPorts, inOwners, outOwners)
+        val (logics, inOwners, outOwners) = createLogics(operators.toArray, upstreams.toArray, downstreams.toArray)
+        val conns = createConnections(connectedPorts, inOwners, outOwners)
 
         manualInit(logics.toArray, conns)
       }
@@ -252,14 +317,14 @@ trait GraphInterpreterSpecKit extends StreamSpec {
         logger,
         logics,
         connections,
-        onAsyncInput = (_, _, _) ⇒ (),
+        onAsyncInput = (_, _, _, _) => (),
         fuzzingMode = false,
         context = null)
       _interpreter.init(null)
     }
 
-    def builder(stages: GraphStageWithMaterializedValue[_ <: Shape, _]*): AssemblyBuilder =
-      new AssemblyBuilder(stages.toVector)
+    def builder(operators: GraphStageWithMaterializedValue[_ <: Shape, _]*): AssemblyBuilder =
+      new AssemblyBuilder(operators.toVector)
 
   }
 
@@ -270,7 +335,7 @@ trait GraphInterpreterSpecKit extends StreamSpec {
     }
 
     case class OnComplete(source: GraphStageLogic) extends TestEvent
-    case class Cancel(source: GraphStageLogic) extends TestEvent
+    case class Cancel(source: GraphStageLogic, cause: Throwable) extends TestEvent
     case class OnError(source: GraphStageLogic, cause: Throwable) extends TestEvent
     case class OnNext(source: GraphStageLogic, elem: Any) extends TestEvent
     case class RequestOne(source: GraphStageLogic) extends TestEvent
@@ -294,7 +359,7 @@ trait GraphInterpreterSpecKit extends StreamSpec {
 
       setHandler(out, new OutHandler {
         override def onPull(): Unit = lastEvent += RequestOne(UpstreamProbe.this)
-        override def onDownstreamFinish(): Unit = lastEvent += Cancel(UpstreamProbe.this)
+        override def onDownstreamFinish(cause: Throwable): Unit = lastEvent += Cancel(UpstreamProbe.this, cause)
         override def toString = s"${UpstreamProbe.this.toString}.outHandler"
       })
 
@@ -354,15 +419,16 @@ trait GraphInterpreterSpecKit extends StreamSpec {
       out.id = 0
       override val shape: FlowShape[Int, Int] = FlowShape(in, out)
 
-      override def createLogic(inheritedAttributes: Attributes): GraphStageLogic = new GraphStageLogic(shape) with InHandler with OutHandler {
-        override def onPush(): Unit = push(out, grab(in))
-        override def onPull(): Unit = pull(in)
-        override def onUpstreamFinish(): Unit = complete(out)
-        override def onUpstreamFailure(ex: Throwable): Unit = fail(out, ex)
-        override def onDownstreamFinish(): Unit = cancel(in)
+      override def createLogic(inheritedAttributes: Attributes): GraphStageLogic =
+        new GraphStageLogic(shape) with InHandler with OutHandler {
+          override def onPush(): Unit = push(out, grab(in))
+          override def onPull(): Unit = pull(in)
+          override def onUpstreamFinish(): Unit = complete(out)
+          override def onUpstreamFailure(ex: Throwable): Unit = fail(out, ex)
+          override def onDownstreamFinish(cause: Throwable): Unit = cancel(in, cause)
 
-        setHandlers(in, out, this)
-      }
+          setHandlers(in, out, this)
+        }
       override def toString = "EventPropagateStage"
     }
 
@@ -394,8 +460,8 @@ trait GraphInterpreterSpecKit extends StreamSpec {
           val internalEvent = portToConn(in.id).slot
 
           internalEvent match {
-            case Failed(_, elem) ⇒ lastEvent += OnNext(DownstreamPortProbe.this, elem)
-            case elem            ⇒ lastEvent += OnNext(DownstreamPortProbe.this, elem)
+            case Failed(_, elem) => lastEvent += OnNext(DownstreamPortProbe.this, elem)
+            case elem            => lastEvent += OnNext(DownstreamPortProbe.this, elem)
           }
         }
 
@@ -408,14 +474,14 @@ trait GraphInterpreterSpecKit extends StreamSpec {
       if (!chasing) {
         val logics = Array[GraphStageLogic](out, in)
         setLogicIds(logics)
-        val connections = GraphInterpreterSpecKit.createLinearFlowConnections(logics)
+        val connections = GraphInterpreterSpecKit.createLinearFlowConnections(logics.toIndexedSeq)
         (logics, connections)
       } else {
         val propagateStage = new EventPropagateStage
         setPortIds(propagateStage)
         val logics = Array[GraphStageLogic](out, propagateStage.createLogic(Attributes.none), in)
         setLogicIds(logics)
-        val connections = GraphInterpreterSpecKit.createLinearFlowConnections(logics)
+        val connections = GraphInterpreterSpecKit.createLinearFlowConnections(logics.toIndexedSeq)
         (logics, connections)
       }
 
@@ -442,7 +508,7 @@ trait GraphInterpreterSpecKit extends StreamSpec {
     // Must be lazy because I turned this stage "inside-out" therefore changing initialization order
     // to make tests a bit more readable
     lazy val insideOutStage: GraphStageLogic = new GraphStageLogic(stageshape) {
-      private def mayFail(task: ⇒ Unit): Unit = {
+      private def mayFail(task: => Unit): Unit = {
         if (!_failOnNextEvent) task
         else {
           _failOnNextEvent = false
@@ -459,7 +525,7 @@ trait GraphInterpreterSpecKit extends StreamSpec {
 
       setHandler(stageout, new OutHandler {
         override def onPull(): Unit = mayFail(pull(stagein))
-        override def onDownstreamFinish(): Unit = mayFail(completeStage())
+        override def onDownstreamFinish(cause: Throwable): Unit = mayFail(completeStage())
         override def toString = "insideOutStage.stageout"
       })
 
@@ -488,13 +554,11 @@ trait GraphInterpreterSpecKit extends StreamSpec {
       def cancel(): Unit = cancel(in)
     }
 
-    builder(sandwitchStage)
-      .connect(upstream, stagein)
-      .connect(stageout, downstream)
-      .init()
+    builder(sandwitchStage).connect(upstream, stagein).connect(stageout, downstream).init()
   }
 
-  abstract class OneBoundedSetupWithDecider[T](decider: Decider, ops: GraphStageWithMaterializedValue[Shape, Any]*) extends Builder {
+  abstract class OneBoundedSetupWithDecider[T](decider: Decider, ops: GraphStageWithMaterializedValue[Shape, Any]*)
+      extends Builder {
 
     val upstream = new UpstreamOneBoundedProbe[T]
     val downstream = new DownstreamOneBoundedPortProbe[T]
@@ -503,7 +567,7 @@ trait GraphInterpreterSpecKit extends StreamSpec {
     sealed trait TestEvent
 
     case object OnComplete extends TestEvent
-    case object Cancel extends TestEvent
+    case class Cancel(cause: Throwable) extends TestEvent
     case class OnError(cause: Throwable) extends TestEvent
     case class OnNext(elem: Any) extends TestEvent
     case object RequestOne extends TestEvent
@@ -514,12 +578,8 @@ trait GraphInterpreterSpecKit extends StreamSpec {
     private def initialize(): Unit = {
       val supervision = ActorAttributes.supervisionStrategy(decider)
       val attributes = Array.fill[Attributes](ops.length)(supervision)
-      val (logics, _, _) = createLogics(
-        ops.toArray,
-        Array(upstream),
-        Array(downstream),
-        attributes)
-      val connections = createLinearFlowConnections(logics)
+      val (logics, _, _) = createLogics(ops.toArray, Array(upstream), Array(downstream), attributes)
+      val connections = createLinearFlowConnections(logics.toIndexedSeq)
       manualInit(logics, connections)
     }
 
@@ -536,14 +596,16 @@ trait GraphInterpreterSpecKit extends StreamSpec {
       val out = Outlet[TT]("out")
       out.id = 0
 
-      setHandler(out, new OutHandler {
-        override def onPull(): Unit = {
-          if (lastEvent.contains(RequestOne)) lastEvent += RequestAnother
-          else lastEvent += RequestOne
-        }
+      setHandler(
+        out,
+        new OutHandler {
+          override def onPull(): Unit = {
+            if (lastEvent.contains(RequestOne)) lastEvent += RequestAnother
+            else lastEvent += RequestOne
+          }
 
-        override def onDownstreamFinish(): Unit = lastEvent += Cancel
-      })
+          override def onDownstreamFinish(cause: Throwable): Unit = lastEvent += Cancel(cause)
+        })
 
       def onNext(elem: TT): Unit = {
         push(out, elem)
@@ -587,7 +649,7 @@ trait GraphInterpreterSpecKit extends StreamSpec {
       }
 
       def cancel(): Unit = {
-        cancel(in)
+        cancel(in, SubscriptionWithCancelException.NoMoreElementsNeeded)
         run()
       }
 
@@ -596,6 +658,5 @@ trait GraphInterpreterSpecKit extends StreamSpec {
   }
 
   abstract class OneBoundedSetup[T](_ops: GraphStageWithMaterializedValue[Shape, Any]*)
-    extends OneBoundedSetupWithDecider[T](Supervision.stoppingDecider, _ops: _*)
+      extends OneBoundedSetupWithDecider[T](Supervision.stoppingDecider, _ops: _*)
 }
-

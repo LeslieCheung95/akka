@@ -1,12 +1,11 @@
-/**
- * Copyright (C) 2015-2017 Lightbend Inc. <http://www.lightbend.com>
+/*
+ * Copyright (C) 2015-2019 Lightbend Inc. <https://www.lightbend.com>
  */
 
 package akka.stream.impl
 
 import akka.NotUsed
 import akka.stream._
-import akka.stream.impl.StreamLayout.AtomicModule
 import akka.stream.impl.TraversalTestUtils._
 import akka.stream.scaladsl.Keep
 import akka.testkit.AkkaSpec
@@ -28,8 +27,7 @@ class LinearTraversalBuilderSpec extends AkkaSpec {
 
     "work with a single Source and Sink" in {
       val builder =
-        source.traversalBuilder
-          .append(sink.traversalBuilder, sink.shape, Keep.left)
+        source.traversalBuilder.append(sink.traversalBuilder, sink.shape, Keep.left)
 
       val mat = testMaterialize(builder)
 
@@ -112,8 +110,7 @@ class LinearTraversalBuilderSpec extends AkkaSpec {
 
     "work with a nested Flow chain" in {
       val nestedFlows =
-        flow1.traversalBuilder
-          .append(flow2.traversalBuilder, flow2.shape, Keep.left)
+        flow1.traversalBuilder.append(flow2.traversalBuilder, flow2.shape, Keep.left)
 
       val builder = source.traversalBuilder
         .append(nestedFlows, FlowShape(flow1.in, flow2.out), Keep.left)
@@ -132,8 +129,7 @@ class LinearTraversalBuilderSpec extends AkkaSpec {
 
     "work with a nested Flow chain used twice (appended to self)" in {
       val nestedFlows =
-        flow1.traversalBuilder
-          .append(flow2.traversalBuilder, flow2.shape, Keep.left)
+        flow1.traversalBuilder.append(flow2.traversalBuilder, flow2.shape, Keep.left)
 
       val builder = source.traversalBuilder
         .append(nestedFlows, FlowShape(flow1.in, flow2.out), Keep.left)
@@ -167,9 +163,7 @@ class LinearTraversalBuilderSpec extends AkkaSpec {
 
     "work with a two Flows wired back to self" in {
       val builder =
-        flow1.traversalBuilder
-          .append(flow2.traversalBuilder, flow2.shape, Keep.left)
-          .wire(flow2.out, flow1.in)
+        flow1.traversalBuilder.append(flow2.traversalBuilder, flow2.shape, Keep.left).wire(flow2.out, flow1.in)
 
       val mat = testMaterialize(builder)
 
@@ -182,9 +176,7 @@ class LinearTraversalBuilderSpec extends AkkaSpec {
 
     "work with Flow appended to self then wired back to self" in {
       val builder =
-        flow1.traversalBuilder
-          .append(flow1.traversalBuilder, flow1.shape, Keep.left)
-          .wire(flow1.out, flow1.in)
+        flow1.traversalBuilder.append(flow1.traversalBuilder, flow1.shape, Keep.left).wire(flow1.out, flow1.in)
 
       val mat = testMaterialize(builder)
 
@@ -223,8 +215,7 @@ class LinearTraversalBuilderSpec extends AkkaSpec {
 
     "be able to be joined with a composite flow" in {
       val embeddedFlow =
-        flow1.traversalBuilder
-          .append(flow2.traversalBuilder, flow2.shape, Keep.left)
+        flow1.traversalBuilder.append(flow2.traversalBuilder, flow2.shape, Keep.left)
 
       val builder =
         compositeFlow1.traversalBuilder
@@ -262,9 +253,7 @@ class LinearTraversalBuilderSpec extends AkkaSpec {
 
     "be able to add a flow to an empty composite and join to itself" in {
       val builder =
-        TraversalBuilder.empty()
-          .add(flow1.traversalBuilder, flow1.shape, Keep.left)
-          .wire(flow1.out, flow1.in)
+        TraversalBuilder.empty().add(flow1.traversalBuilder, flow1.shape, Keep.left).wire(flow1.out, flow1.in)
 
       val mat = testMaterialize(builder)
 
@@ -275,8 +264,7 @@ class LinearTraversalBuilderSpec extends AkkaSpec {
 
     "be able to embed a composite sink in a linear traversal" in {
       val builder =
-        source.traversalBuilder
-          .append(compositeSink.traversalBuilder, compositeSink.shape, Keep.left)
+        source.traversalBuilder.append(compositeSink.traversalBuilder, compositeSink.shape, Keep.left)
 
       val mat = testMaterialize(builder)
 
@@ -306,7 +294,8 @@ class LinearTraversalBuilderSpec extends AkkaSpec {
 
     "be able to embed a composite sink with an irregular wiring" in {
       val sinkBuilder =
-        TraversalBuilder.empty()
+        TraversalBuilder
+          .empty()
           .add(compositeFlow2.traversalBuilder, compositeFlow2.shape, Keep.left)
           .add(compositeSink.traversalBuilder, compositeSink.shape, Keep.left)
           .add(compositeFlow1.traversalBuilder, compositeFlow1.shape, Keep.left)
@@ -314,8 +303,7 @@ class LinearTraversalBuilderSpec extends AkkaSpec {
           .wire(compositeFlow1.out, compositeFlow2.in)
 
       val builder =
-        source.traversalBuilder
-          .append(sinkBuilder, SinkShape(compositeFlow1.in), Keep.left)
+        source.traversalBuilder.append(sinkBuilder, SinkShape(compositeFlow1.in), Keep.left)
 
       val mat = testMaterialize(builder)
 
@@ -383,8 +371,7 @@ class LinearTraversalBuilderSpec extends AkkaSpec {
       val shape = FlowShape(compositeFlow1.in, flow1.out)
 
       val embeddedBuilder =
-        LinearTraversalBuilder.empty()
-          .append(compositeBuilder, shape, Keep.left)
+        LinearTraversalBuilder.empty().append(compositeBuilder, shape, Keep.left)
 
       val builder =
         source.traversalBuilder
@@ -417,8 +404,7 @@ class LinearTraversalBuilderSpec extends AkkaSpec {
 
     "properly propagate materialized value with Keep.left" in {
       val builder =
-        source.traversalBuilder
-          .append(sink.traversalBuilder, sink.shape, Keep.left)
+        source.traversalBuilder.append(sink.traversalBuilder, sink.shape, Keep.left)
 
       val mat = testMaterialize(builder)
 
@@ -427,8 +413,9 @@ class LinearTraversalBuilderSpec extends AkkaSpec {
 
     "keep mapped materialized value of empty builder" in {
       val builder =
-        LinearTraversalBuilder.empty()
-          .transformMat((_: Any) ⇒ "NOTUSED")
+        LinearTraversalBuilder
+          .empty()
+          .transformMat((_: Any) => "NOTUSED")
           .append(source.traversalBuilder, source.shape, Keep.left)
           .append(sink.traversalBuilder, sink.shape, Keep.left)
 
@@ -439,8 +426,7 @@ class LinearTraversalBuilderSpec extends AkkaSpec {
 
     "properly propagate materialized value with Keep.right" in {
       val builder =
-        source.traversalBuilder
-          .append(sink.traversalBuilder, sink.shape, Keep.right)
+        source.traversalBuilder.append(sink.traversalBuilder, sink.shape, Keep.right)
 
       val mat = testMaterialize(builder)
 
@@ -449,8 +435,7 @@ class LinearTraversalBuilderSpec extends AkkaSpec {
 
     "properly propagate materialized value with Keep.both" in {
       val builder =
-        source.traversalBuilder
-          .append(sink.traversalBuilder, sink.shape, Keep.both)
+        source.traversalBuilder.append(sink.traversalBuilder, sink.shape, Keep.both)
 
       val mat = testMaterialize(builder)
 
@@ -489,7 +474,8 @@ class LinearTraversalBuilderSpec extends AkkaSpec {
 
     "properly propagate materialized value with Keep.right with composite Source as start" in {
       val builder =
-        LinearTraversalBuilder.empty()
+        LinearTraversalBuilder
+          .empty()
           .append(compositeSource.traversalBuilder, compositeSource.shape, Keep.right)
           .append(flow1.traversalBuilder, flow1.shape, Keep.left)
           .append(sink.traversalBuilder, sink.shape, Keep.left)
@@ -512,7 +498,8 @@ class LinearTraversalBuilderSpec extends AkkaSpec {
 
     "properly propagate materialized value with Keep.both and all composite" in {
       val builder =
-        LinearTraversalBuilder.empty()
+        LinearTraversalBuilder
+          .empty()
           .append(compositeSource.traversalBuilder, compositeSource.shape, Keep.both)
           .append(compositeFlow1.traversalBuilder, compositeFlow1.shape, Keep.both)
           .append(compositeSink.traversalBuilder, compositeSink.shape, Keep.both)
@@ -565,8 +552,7 @@ class LinearTraversalBuilderSpec extends AkkaSpec {
 
     "properly map materialized value (nested)" in {
       val flowBuilder =
-        flow1.traversalBuilder
-          .transformMat("M1: " + (_: String))
+        flow1.traversalBuilder.transformMat("M1: " + (_: String))
 
       val builder = source.traversalBuilder
         .append(flowBuilder, flow1.shape, Keep.right)
@@ -585,10 +571,10 @@ class LinearTraversalBuilderSpec extends AkkaSpec {
 
       val mat = testMaterialize(builder)
 
-      mat.attributesAssignments should ===(List(
-        sink → (Attributes.name("test") and Attributes.name("testSink")),
-        source → (Attributes.name("test") and Attributes.name("testSource"))
-      ))
+      mat.attributesAssignments should ===(
+        List(
+          sink -> (Attributes.name("test") and Attributes.name("testSink")),
+          source -> (Attributes.name("test") and Attributes.name("testSource"))))
     }
 
     "properly accumulate attributes in chain" in {
@@ -599,10 +585,10 @@ class LinearTraversalBuilderSpec extends AkkaSpec {
 
       val mat = testMaterialize(builder)
 
-      mat.attributesAssignments should ===(List(
-        sink → (Attributes.name("test") and Attributes.name("testSink")),
-        source → (Attributes.name("test") and Attributes.name("source"))
-      ))
+      mat.attributesAssignments should ===(
+        List(
+          sink -> (Attributes.name("test") and Attributes.name("testSink")),
+          source -> (Attributes.name("test") and Attributes.name("source"))))
     }
 
     "overwrite last attributes until a new module is added" in {
@@ -615,10 +601,10 @@ class LinearTraversalBuilderSpec extends AkkaSpec {
 
       val mat = testMaterialize(builder)
 
-      mat.attributesAssignments should ===(List(
-        sink → (Attributes.name("test2") and Attributes.name("testSink")),
-        source → (Attributes.name("test2") and Attributes.name("source2"))
-      ))
+      mat.attributesAssignments should ===(
+        List(
+          sink -> (Attributes.name("test2") and Attributes.name("testSink")),
+          source -> (Attributes.name("test2") and Attributes.name("source2"))))
     }
 
     "propagate attributes to embedded linear sink and source" in {
@@ -630,10 +616,10 @@ class LinearTraversalBuilderSpec extends AkkaSpec {
 
       val mat = testMaterialize(builder)
 
-      mat.attributesAssignments should ===(List(
-        sink → (Attributes.name("test") and Attributes.name("sink")),
-        source → (Attributes.name("test") and Attributes.name("source"))
-      ))
+      mat.attributesAssignments should ===(
+        List(
+          sink -> (Attributes.name("test") and Attributes.name("sink")),
+          source -> (Attributes.name("test") and Attributes.name("source"))))
     }
 
     "propagate attributes to embedded linear flow" in {
@@ -647,11 +633,11 @@ class LinearTraversalBuilderSpec extends AkkaSpec {
 
       val mat = testMaterialize(builder)
 
-      mat.attributesAssignments should ===(List(
-        sink → (Attributes.name("test") and Attributes.name("sink")),
-        flow1 → (Attributes.name("test") and Attributes.name("compositeSource") and Attributes.name("flow")),
-        source → (Attributes.name("test") and Attributes.name("compositeSource") and Attributes.name("source"))
-      ))
+      mat.attributesAssignments should ===(
+        List(
+          sink -> (Attributes.name("test") and Attributes.name("sink")),
+          flow1 -> (Attributes.name("test") and Attributes.name("compositeSource") and Attributes.name("flow")),
+          source -> (Attributes.name("test") and Attributes.name("compositeSource") and Attributes.name("source"))))
     }
 
     "propagate attributes to embedded composite sink" in {
@@ -664,19 +650,19 @@ class LinearTraversalBuilderSpec extends AkkaSpec {
 
       val mat = testMaterialize(builder)
 
-      mat.attributesAssignments should ===(List(
-        compositeSink → (Attributes.name("test") and Attributes.name("sink")),
-        flow1 → (Attributes.name("test") and Attributes.name("flow")),
-        source → (Attributes.name("test") and Attributes.name("source"))
-      ))
+      mat.attributesAssignments should ===(
+        List(
+          compositeSink -> (Attributes.name("test") and Attributes.name("sink")),
+          flow1 -> (Attributes.name("test") and Attributes.name("flow")),
+          source -> (Attributes.name("test") and Attributes.name("source"))))
     }
 
     "propagate attributes to embedded composite source" in {
       val builder =
-        LinearTraversalBuilder.empty()
+        LinearTraversalBuilder
+          .empty()
           .append(
-            compositeSource.traversalBuilder
-              .setAttributes(Attributes.name("source")),
+            compositeSource.traversalBuilder.setAttributes(Attributes.name("source")),
             compositeSource.shape,
             Keep.left)
           .setAttributes(Attributes.name("source-outer"))
@@ -686,33 +672,38 @@ class LinearTraversalBuilderSpec extends AkkaSpec {
 
       val mat = testMaterialize(builder)
 
-      mat.attributesAssignments should ===(List(
-        sink → (Attributes.name("test") and Attributes.name("sink")),
-        flow1 → (Attributes.name("test") and Attributes.name("flow")),
-        compositeSource → (Attributes.name("test") and Attributes.name("source-outer") and Attributes.name("source"))
-      ))
+      mat.attributesAssignments should ===(
+        List(
+          sink -> (Attributes.name("test") and Attributes.name("sink")),
+          flow1 -> (Attributes.name("test") and Attributes.name("flow")),
+          compositeSource -> (Attributes.name("test") and Attributes.name("source-outer") and Attributes.name(
+            "source"))))
     }
 
     "propagate attributes to embedded composite flow" in {
       val builder =
         source.traversalBuilder
           .setAttributes(Attributes.name("source"))
-          .append(compositeFlow1.traversalBuilder.setAttributes(Attributes.name("flow")), compositeFlow1.shape, Keep.left)
+          .append(
+            compositeFlow1.traversalBuilder.setAttributes(Attributes.name("flow")),
+            compositeFlow1.shape,
+            Keep.left)
           .append(sink.traversalBuilder.setAttributes(Attributes.name("sink")), compositeSink.shape, Keep.left)
           .setAttributes(Attributes.name("test"))
 
       val mat = testMaterialize(builder)
 
-      mat.attributesAssignments should ===(List(
-        sink → (Attributes.name("test") and Attributes.name("sink")),
-        compositeFlow1 → (Attributes.name("test") and Attributes.name("flow")),
-        source → (Attributes.name("test") and Attributes.name("source"))
-      ))
+      mat.attributesAssignments should ===(
+        List(
+          sink -> (Attributes.name("test") and Attributes.name("sink")),
+          compositeFlow1 -> (Attributes.name("test") and Attributes.name("flow")),
+          source -> (Attributes.name("test") and Attributes.name("source"))))
     }
 
     "properly append a Source to empty linear" in {
       val builder =
-        LinearTraversalBuilder.empty()
+        LinearTraversalBuilder
+          .empty()
           .append(source.traversalBuilder, source.shape, Keep.right)
           .append(sink.traversalBuilder, sink.shape, Keep.right)
 
@@ -725,12 +716,10 @@ class LinearTraversalBuilderSpec extends AkkaSpec {
 
     "properly append a Sink to empty linear" in {
       val nestedSink =
-        LinearTraversalBuilder.empty()
-          .append(sink.traversalBuilder, sink.shape, Keep.right)
+        LinearTraversalBuilder.empty().append(sink.traversalBuilder, sink.shape, Keep.right)
 
       val builder =
-        source.traversalBuilder
-          .append(nestedSink, sink.shape, Keep.right)
+        source.traversalBuilder.append(nestedSink, sink.shape, Keep.right)
 
       val mat = testMaterialize(builder)
 
@@ -741,8 +730,7 @@ class LinearTraversalBuilderSpec extends AkkaSpec {
 
     "properly append a Flow to empty linear" in {
       val nestedFlow =
-        LinearTraversalBuilder.empty()
-          .append(flow1.traversalBuilder, flow1.shape, Keep.right)
+        LinearTraversalBuilder.empty().append(flow1.traversalBuilder, flow1.shape, Keep.right)
 
       val builder =
         source.traversalBuilder
@@ -760,7 +748,8 @@ class LinearTraversalBuilderSpec extends AkkaSpec {
 
     "properly append a composite Source to empty linear" in {
       val builder =
-        LinearTraversalBuilder.empty()
+        LinearTraversalBuilder
+          .empty()
           .append(compositeSource.traversalBuilder, compositeSource.shape, Keep.right)
           .append(sink.traversalBuilder, sink.shape, Keep.right)
 
@@ -773,12 +762,10 @@ class LinearTraversalBuilderSpec extends AkkaSpec {
 
     "properly append a composite Sink to empty linear" in {
       val nestedSink =
-        LinearTraversalBuilder.empty()
-          .append(compositeSink.traversalBuilder, compositeSink.shape, Keep.right)
+        LinearTraversalBuilder.empty().append(compositeSink.traversalBuilder, compositeSink.shape, Keep.right)
 
       val builder =
-        source.traversalBuilder
-          .append(nestedSink, compositeSink.shape, Keep.right)
+        source.traversalBuilder.append(nestedSink, compositeSink.shape, Keep.right)
 
       val mat = testMaterialize(builder)
 
@@ -789,8 +776,7 @@ class LinearTraversalBuilderSpec extends AkkaSpec {
 
     "properly append a composite Flow to empty linear" in {
       val nestedFlow =
-        LinearTraversalBuilder.empty()
-          .append(compositeFlow1.traversalBuilder, compositeFlow1.shape, Keep.right)
+        LinearTraversalBuilder.empty().append(compositeFlow1.traversalBuilder, compositeFlow1.shape, Keep.right)
 
       val builder =
         source.traversalBuilder
@@ -819,12 +805,12 @@ class LinearTraversalBuilderSpec extends AkkaSpec {
 
       val mat = testMaterialize(builder)
 
-      mat.islandAssignments should ===(List(
-        (sink, Attributes.none, TestDefaultIsland),
-        (flow2, Attributes.none, TestDefaultIsland),
-        (flow1, Attributes.name("island2"), TestIsland2),
-        (source, Attributes.name("island2") and Attributes.name("island1"), TestIsland1)
-      ))
+      mat.islandAssignments should ===(
+        List(
+          (sink, Attributes.none, TestDefaultIsland),
+          (flow2, Attributes.none, TestDefaultIsland),
+          (flow1, Attributes.name("island2"), TestIsland2),
+          (source, Attributes.name("island2") and Attributes.name("island1"), TestIsland1)))
     }
 
     "properly nest flow with islands" in {
@@ -843,12 +829,12 @@ class LinearTraversalBuilderSpec extends AkkaSpec {
 
       val mat = testMaterialize(builder)
 
-      mat.islandAssignments should ===(List(
-        (sink, Attributes.none, TestDefaultIsland),
-        (flow2, Attributes.name("wholeThing") and Attributes.name("nestedFlow"), TestIsland1),
-        (flow1, Attributes.name("wholeThing") and Attributes.name("nestedFlow"), TestIsland1),
-        (source, Attributes.none, TestDefaultIsland)
-      ))
+      mat.islandAssignments should ===(
+        List(
+          (sink, Attributes.none, TestDefaultIsland),
+          (flow2, Attributes.name("wholeThing") and Attributes.name("nestedFlow"), TestIsland1),
+          (flow1, Attributes.name("wholeThing") and Attributes.name("nestedFlow"), TestIsland1),
+          (source, Attributes.none, TestDefaultIsland)))
     }
 
     "properly nest flow with island inside another island" in {
@@ -868,19 +854,17 @@ class LinearTraversalBuilderSpec extends AkkaSpec {
 
       val mat = testMaterialize(builder)
 
-      mat.islandAssignments should ===(List(
-        (sink, Attributes.none, TestDefaultIsland),
-        (flow2, Attributes.name("wholeThing") and Attributes.name("nestedFlow"), TestIsland1),
-        (flow1, Attributes.name("wholeThing") and Attributes.name("nestedFlow"), TestIsland1),
-        (source, Attributes.name("wholeThing"), TestIsland2)
-      ))
+      mat.islandAssignments should ===(
+        List(
+          (sink, Attributes.none, TestDefaultIsland),
+          (flow2, Attributes.name("wholeThing") and Attributes.name("nestedFlow"), TestIsland1),
+          (flow1, Attributes.name("wholeThing") and Attributes.name("nestedFlow"), TestIsland1),
+          (source, Attributes.name("wholeThing"), TestIsland2)))
     }
 
     "properly nest flow with islands starting from linear enclosing a composite" in {
       val nestedFlow =
-        flow2.traversalBuilder
-          .setAttributes(Attributes.name("nestedFlow"))
-          .makeIsland(TestIsland1)
+        flow2.traversalBuilder.setAttributes(Attributes.name("nestedFlow")).makeIsland(TestIsland1)
 
       val builder =
         source.traversalBuilder
@@ -892,12 +876,12 @@ class LinearTraversalBuilderSpec extends AkkaSpec {
 
       val mat = testMaterialize(builder)
 
-      mat.islandAssignments should ===(List(
-        (sink, Attributes.none, TestDefaultIsland),
-        (flow2, Attributes.name("wholeThing") and Attributes.name("nestedFlow"), TestIsland1),
-        (compositeFlow1, Attributes.name("wholeThing"), TestIsland2),
-        (source, Attributes.name("wholeThing"), TestIsland2)
-      ))
+      mat.islandAssignments should ===(
+        List(
+          (sink, Attributes.none, TestDefaultIsland),
+          (flow2, Attributes.name("wholeThing") and Attributes.name("nestedFlow"), TestIsland1),
+          (compositeFlow1, Attributes.name("wholeThing"), TestIsland2),
+          (source, Attributes.name("wholeThing"), TestIsland2)))
     }
 
     "properly nest flow containing composite with islands" in {
@@ -915,12 +899,12 @@ class LinearTraversalBuilderSpec extends AkkaSpec {
 
       val mat = testMaterialize(builder)
 
-      mat.islandAssignments should ===(List(
-        (sink, Attributes.none, TestDefaultIsland),
-        (compositeFlow2, Attributes.name("wholeThing") and Attributes.name("nestedFlow"), TestIsland1),
-        (flow1, Attributes.name("wholeThing") and Attributes.name("nestedFlow"), TestIsland1),
-        (source, Attributes.none, TestDefaultIsland)
-      ))
+      mat.islandAssignments should ===(
+        List(
+          (sink, Attributes.none, TestDefaultIsland),
+          (compositeFlow2, Attributes.name("wholeThing") and Attributes.name("nestedFlow"), TestIsland1),
+          (flow1, Attributes.name("wholeThing") and Attributes.name("nestedFlow"), TestIsland1),
+          (source, Attributes.none, TestDefaultIsland)))
     }
 
   }

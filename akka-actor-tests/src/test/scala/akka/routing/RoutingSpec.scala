@@ -1,6 +1,7 @@
-/**
- * Copyright (C) 2009-2017 Lightbend Inc. <http://www.lightbend.com>
+/*
+ * Copyright (C) 2009-2019 Lightbend Inc. <https://www.lightbend.com>
  */
+
 package akka.routing
 
 import language.postfixOps
@@ -17,7 +18,6 @@ import akka.pattern.{ ask, pipe }
 object RoutingSpec {
 
   val config = """
-    akka.actor.serialize-messages = off
     akka.actor.deployment {
       /router1 {
         router = round-robin-pool
@@ -35,12 +35,12 @@ object RoutingSpec {
     """
 
   class TestActor extends Actor {
-    def receive = { case _ ⇒ }
+    def receive = { case _ => }
   }
 
   class Echo extends Actor {
     def receive = {
-      case _ ⇒ sender() ! self
+      case _ => sender() ! self
     }
   }
 
@@ -50,7 +50,7 @@ class RoutingSpec extends AkkaSpec(RoutingSpec.config) with DefaultTimeout with 
   implicit val ec = system.dispatcher
   import RoutingSpec._
 
-  muteDeadLetters(classOf[akka.dispatch.sysmsg.DeathWatchNotification])()
+  muteDeadLetters(classOf[akka.dispatch.sysmsg.DeathWatchNotification])(system)
 
   "routers in general" must {
 
@@ -68,7 +68,7 @@ class RoutingSpec extends AkkaSpec(RoutingSpec.config) with DefaultTimeout with 
         router ! ""
         router ! ""
         val res = receiveWhile(100 millis, messages = 2) {
-          case x: ActorRef ⇒ x
+          case x: ActorRef => x
         }
         res == Seq(c1, c1)
       }
@@ -85,16 +85,16 @@ class RoutingSpec extends AkkaSpec(RoutingSpec.config) with DefaultTimeout with 
           2
         }
       }
-      val router = system.actorOf(RoundRobinPool(nrOfInstances = 0, resizer = Some(resizer)).props(
-        routeeProps = Props[TestActor]))
+      val router =
+        system.actorOf(RoundRobinPool(nrOfInstances = 0, resizer = Some(resizer)).props(routeeProps = Props[TestActor]))
       watch(router)
       Await.ready(latch, remainingOrDefault)
       router ! GetRoutees
       val routees = expectMsgType[Routees].routees
       routees.size should ===(2)
-      routees foreach { _.send(PoisonPill, testActor) }
+      routees.foreach { _.send(PoisonPill, testActor) }
       // expect no Terminated
-      expectNoMsg(2.seconds)
+      expectNoMessage(2.seconds)
     }
 
     "use configured nr-of-instances when FromConfig" in {
@@ -122,8 +122,10 @@ class RoutingSpec extends AkkaSpec(RoutingSpec.config) with DefaultTimeout with 
           3
         }
       }
-      val router = system.actorOf(RoundRobinPool(nrOfInstances = 0, resizer = Some(resizer)).props(
-        routeeProps = Props[TestActor]), "router3")
+      val router =
+        system.actorOf(
+          RoundRobinPool(nrOfInstances = 0, resizer = Some(resizer)).props(routeeProps = Props[TestActor]),
+          "router3")
       Await.ready(latch, remainingOrDefault)
       router ! GetRoutees
       expectMsgType[Routees].routees.size should ===(3)
@@ -134,22 +136,22 @@ class RoutingSpec extends AkkaSpec(RoutingSpec.config) with DefaultTimeout with 
       //#supervision
       val escalator = OneForOneStrategy() {
         //#custom-strategy
-        case e ⇒ testActor ! e; SupervisorStrategy.Escalate
+        case e => testActor ! e; SupervisorStrategy.Escalate
         //#custom-strategy
       }
-      val router = system.actorOf(RoundRobinPool(1, supervisorStrategy = escalator).props(
-        routeeProps = Props[TestActor]))
+      val router =
+        system.actorOf(RoundRobinPool(1, supervisorStrategy = escalator).props(routeeProps = Props[TestActor]))
       //#supervision
       router ! GetRoutees
-      EventFilter[ActorKilledException](occurrences = 1) intercept {
+      EventFilter[ActorKilledException](occurrences = 1).intercept {
         expectMsgType[Routees].routees.head.send(Kill, testActor)
       }
       expectMsgType[ActorKilledException]
 
-      val router2 = system.actorOf(RoundRobinPool(1).withSupervisorStrategy(escalator).props(
-        routeeProps = Props[TestActor]))
+      val router2 =
+        system.actorOf(RoundRobinPool(1).withSupervisorStrategy(escalator).props(routeeProps = Props[TestActor]))
       router2 ! GetRoutees
-      EventFilter[ActorKilledException](occurrences = 1) intercept {
+      EventFilter[ActorKilledException](occurrences = 1).intercept {
         expectMsgType[Routees].routees.head.send(Kill, testActor)
       }
       expectMsgType[ActorKilledException]
@@ -157,12 +159,12 @@ class RoutingSpec extends AkkaSpec(RoutingSpec.config) with DefaultTimeout with 
 
     "set supplied supervisorStrategy for FromConfig" in {
       val escalator = OneForOneStrategy() {
-        case e ⇒ testActor ! e; SupervisorStrategy.Escalate
+        case e => testActor ! e; SupervisorStrategy.Escalate
       }
-      val router = system.actorOf(FromConfig.withSupervisorStrategy(escalator).props(
-        routeeProps = Props[TestActor]), "router1")
+      val router =
+        system.actorOf(FromConfig.withSupervisorStrategy(escalator).props(routeeProps = Props[TestActor]), "router1")
       router ! GetRoutees
-      EventFilter[ActorKilledException](occurrences = 1) intercept {
+      EventFilter[ActorKilledException](occurrences = 1).intercept {
         expectMsgType[Routees].routees.head.send(Kill, testActor)
       }
       expectMsgType[ActorKilledException]
@@ -170,17 +172,17 @@ class RoutingSpec extends AkkaSpec(RoutingSpec.config) with DefaultTimeout with 
 
     "default to all-for-one-always-escalate strategy" in {
       val restarter = OneForOneStrategy() {
-        case e ⇒ testActor ! e; SupervisorStrategy.Restart
+        case e => testActor ! e; SupervisorStrategy.Restart
       }
       val supervisor = system.actorOf(Props(new Supervisor(restarter)))
       supervisor ! RoundRobinPool(3).props(routeeProps = Props(new Actor {
         def receive = {
-          case x: String ⇒ throw new Exception(x)
+          case x: String => throw new Exception(x)
         }
         override def postRestart(reason: Throwable): Unit = testActor ! "restarted"
       }))
       val router = expectMsgType[ActorRef]
-      EventFilter[Exception]("die", occurrences = 1) intercept {
+      EventFilter[Exception]("die", occurrences = 1).intercept {
         router ! "die"
       }
       expectMsgType[Exception].getMessage should ===("die")
@@ -192,10 +194,10 @@ class RoutingSpec extends AkkaSpec(RoutingSpec.config) with DefaultTimeout with 
     "start in-line for context.actorOf()" in {
       system.actorOf(Props(new Actor {
         def receive = {
-          case "start" ⇒
-            context.actorOf(RoundRobinPool(2).props(routeeProps = Props(new Actor {
-              def receive = { case x ⇒ sender() ! x }
-            }))) ? "hello" pipeTo sender()
+          case "start" =>
+            (context.actorOf(RoundRobinPool(2).props(routeeProps = Props(new Actor {
+              def receive = { case x => sender() ! x }
+            }))) ? "hello").pipeTo(sender())
         }
       })) ! "start"
       expectMsg("hello")
@@ -208,7 +210,7 @@ class RoutingSpec extends AkkaSpec(RoutingSpec.config) with DefaultTimeout with 
     "send message to connection" in {
       class Actor1 extends Actor {
         def receive = {
-          case msg ⇒ testActor forward msg
+          case msg => testActor.forward(msg)
         }
       }
 
@@ -230,9 +232,11 @@ class RoutingSpec extends AkkaSpec(RoutingSpec.config) with DefaultTimeout with 
     }
 
     "allow external configuration" in {
-      val sys = ActorSystem("FromConfig", ConfigFactory
-        .parseString("akka.actor.deployment./routed.router=round-robin-pool")
-        .withFallback(system.settings.config))
+      val sys = ActorSystem(
+        "FromConfig",
+        ConfigFactory
+          .parseString("akka.actor.deployment./routed.router=round-robin-pool")
+          .withFallback(system.settings.config))
       try {
         sys.actorOf(FromConfig.props(routeeProps = Props[TestActor]), "routed")
       } finally {

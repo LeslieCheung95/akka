@@ -1,12 +1,10 @@
-/**
- * Copyright (C) 2009-2017 Lightbend Inc. <http://www.lightbend.com>
+/*
+ * Copyright (C) 2009-2019 Lightbend Inc. <https://www.lightbend.com>
  */
+
 package akka.remote
 
 import akka.remote.testkit.MultiNodeConfig
-import akka.remote.testkit.MultiNodeSpec
-import akka.remote.testkit.STMultiNodeSpec
-import akka.testkit.ImplicitSender
 import akka.actor.Actor
 import akka.actor.ActorRef
 import akka.actor.Props
@@ -15,16 +13,18 @@ import com.typesafe.config.ConfigFactory
 import akka.actor.ActorSystem
 import scala.concurrent.Await
 import scala.concurrent.duration._
+
+import akka.actor.ActorIdentity
 import akka.actor.ActorLogging
-import akka.remote.testconductor.TestConductor
+import akka.actor.Identify
 import akka.testkit.TestProbe
 
 class RemoteReDeploymentConfig(artery: Boolean) extends MultiNodeConfig {
   val first = role("first")
   val second = role("second")
 
-  commonConfig(debugConfig(on = false).withFallback(ConfigFactory.parseString(
-    s"""akka.remote.transport-failure-detector {
+  commonConfig(
+    debugConfig(on = false).withFallback(ConfigFactory.parseString(s"""akka.remote.classic.transport-failure-detector {
          threshold=0.1
          heartbeat-interval=0.1s
          acceptable-heartbeat-pause=1s
@@ -35,6 +35,7 @@ class RemoteReDeploymentConfig(artery: Boolean) extends MultiNodeConfig {
          acceptable-heartbeat-pause=2.5s
        }
        akka.remote.artery.enabled = $artery
+       akka.remote.use-unsafe-remote-features-outside-cluster = on
        akka.loglevel = INFO
        """)).withFallback(RemotingMultiNodeSpec.commonConfig))
 
@@ -49,8 +50,8 @@ class RemoteReDeploymentFastMultiJvmNode2 extends RemoteReDeploymentFastMultiJvm
 class ArteryRemoteReDeploymentFastMultiJvmNode1 extends RemoteReDeploymentFastMultiJvmSpec(artery = true)
 class ArteryRemoteReDeploymentFastMultiJvmNode2 extends RemoteReDeploymentFastMultiJvmSpec(artery = true)
 
-abstract class RemoteReDeploymentFastMultiJvmSpec(artery: Boolean) extends RemoteReDeploymentMultiJvmSpec(
-  new RemoteReDeploymentConfig(artery)) {
+abstract class RemoteReDeploymentFastMultiJvmSpec(artery: Boolean)
+    extends RemoteReDeploymentMultiJvmSpec(new RemoteReDeploymentConfig(artery)) {
   override def sleepAfterKill = 0.seconds // new association will come in while old is still “healthy”
   override def expectQuarantine = false
 }
@@ -61,9 +62,10 @@ class RemoteReDeploymentMediumMultiJvmNode2 extends RemoteReDeploymentMediumMult
 class ArteryRemoteReDeploymentMediumMultiJvmNode1 extends RemoteReDeploymentMediumMultiJvmSpec(artery = true)
 class ArteryRemoteReDeploymentMediumMultiJvmNode2 extends RemoteReDeploymentMediumMultiJvmSpec(artery = true)
 
-abstract class RemoteReDeploymentMediumMultiJvmSpec(artery: Boolean) extends RemoteReDeploymentMultiJvmSpec(
-  new RemoteReDeploymentConfig(artery)) {
-  override def sleepAfterKill = 1.seconds // new association will come in while old is gated in ReliableDeliverySupervisor
+abstract class RemoteReDeploymentMediumMultiJvmSpec(artery: Boolean)
+    extends RemoteReDeploymentMultiJvmSpec(new RemoteReDeploymentConfig(artery)) {
+  override def sleepAfterKill =
+    1.seconds // new association will come in while old is gated in ReliableDeliverySupervisor
   override def expectQuarantine = false
 }
 
@@ -73,8 +75,8 @@ class RemoteReDeploymentSlowMultiJvmNode2 extends RemoteReDeploymentSlowMultiJvm
 class ArteryRemoteReDeploymentSlowMultiJvmNode1 extends RemoteReDeploymentSlowMultiJvmSpec(artery = true)
 class ArteryRemoteReDeploymentSlowMultiJvmNode2 extends RemoteReDeploymentSlowMultiJvmSpec(artery = true)
 
-abstract class RemoteReDeploymentSlowMultiJvmSpec(artery: Boolean) extends RemoteReDeploymentMultiJvmSpec(
-  new RemoteReDeploymentConfig(artery)) {
+abstract class RemoteReDeploymentSlowMultiJvmSpec(artery: Boolean)
+    extends RemoteReDeploymentMultiJvmSpec(new RemoteReDeploymentConfig(artery)) {
   override def sleepAfterKill = 10.seconds // new association will come in after old has been quarantined
   override def expectQuarantine = true
 }
@@ -84,8 +86,8 @@ object RemoteReDeploymentMultiJvmSpec {
     val monitor = context.actorSelection("/user/echo")
     log.info(s"Started Parent on path ${self.path}")
     def receive = {
-      case (p: Props, n: String) ⇒ context.actorOf(p, n)
-      case msg                   ⇒ monitor ! msg
+      case (p: Props, n: String) => context.actorOf(p, n)
+      case msg                   => monitor ! msg
     }
   }
 
@@ -100,7 +102,7 @@ object RemoteReDeploymentMultiJvmSpec {
 
   class Echo(target: ActorRef) extends Actor with ActorLogging {
     def receive = {
-      case msg ⇒
+      case msg =>
         log.info(s"received $msg from ${sender()}")
         target ! msg
     }
@@ -109,7 +111,7 @@ object RemoteReDeploymentMultiJvmSpec {
 }
 
 abstract class RemoteReDeploymentMultiJvmSpec(multiNodeConfig: RemoteReDeploymentConfig)
-  extends RemotingMultiNodeSpec(multiNodeConfig) {
+    extends RemotingMultiNodeSpec(multiNodeConfig) {
 
   def sleepAfterKill: FiniteDuration
   def expectQuarantine: Boolean
@@ -123,7 +125,7 @@ abstract class RemoteReDeploymentMultiJvmSpec(multiNodeConfig: RemoteReDeploymen
 
     "terminate the child when its parent system is replaced by a new one" in {
       // Any message sent to `echo` will be passed on to `testActor`
-      val echo = system.actorOf(echoProps(testActor), "echo")
+      system.actorOf(echoProps(testActor), "echo")
       enterBarrier("echo-started")
 
       runOn(second) {
@@ -149,9 +151,8 @@ abstract class RemoteReDeploymentMultiJvmSpec(multiNodeConfig: RemoteReDeploymen
           within(sleepAfterKill) {
             // The quarantine of node 2, where the Parent lives, should cause the Hello child to be stopped:
             expectMsg("PostStop")
-            expectNoMsg()
-          }
-        else expectNoMsg(sleepAfterKill)
+            expectNoMessage()
+          } else expectNoMessage(sleepAfterKill)
         awaitAssert(node(second), 10.seconds, 100.millis)
       }
 
@@ -160,11 +161,29 @@ abstract class RemoteReDeploymentMultiJvmSpec(multiNodeConfig: RemoteReDeploymen
       // Start the second system again
       runOn(second) {
         Await.ready(system.whenTerminated, 30.seconds)
-        expectNoMsg(sleepAfterKill)
+        expectNoMessage(sleepAfterKill)
         sys = startNewSystem()
       }
 
       enterBarrier("cable-cut")
+
+      runOn(first) {
+        testConductor.passThrough(second, first, Both).await
+      }
+
+      // make sure ordinary communication works
+      runOn(second) {
+        val sel = sys.actorSelection(node(first) / "user" / "echo")
+        val p = TestProbe()(sys)
+        p.within(15.seconds) {
+          p.awaitAssert {
+            sel.tell(Identify("id-echo-again"), p.ref)
+            p.expectMsgType[ActorIdentity](3.seconds).ref.isDefined should ===(true)
+          }
+        }
+      }
+
+      enterBarrier("ready-again")
 
       // add new echo, parent, and (if needed) Hello actors:
       runOn(second) {
@@ -187,7 +206,7 @@ abstract class RemoteReDeploymentMultiJvmSpec(multiNodeConfig: RemoteReDeploymen
       enterBarrier("the-end")
 
       // After this we expect no further messages
-      expectNoMsg(1.second)
+      expectNoMessage(1.second)
 
       // Until we clean up after ourselves
       enterBarrier("stopping")

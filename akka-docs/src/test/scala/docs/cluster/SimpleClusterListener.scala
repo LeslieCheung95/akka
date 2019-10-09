@@ -1,3 +1,7 @@
+/*
+ * Copyright (C) 2018-2019 Lightbend Inc. <https://www.lightbend.com>
+ */
+
 package scala.docs.cluster
 
 import akka.cluster.Cluster
@@ -12,8 +16,7 @@ class SimpleClusterListener extends Actor with ActorLogging {
   // subscribe to cluster changes, re-subscribe when restart
   override def preStart(): Unit = {
     //#subscribe
-    cluster.subscribe(self, initialStateMode = InitialStateAsEvents,
-      classOf[MemberEvent], classOf[UnreachableMember])
+    cluster.subscribe(self, initialStateMode = InitialStateAsEvents, classOf[MemberEvent], classOf[UnreachableMember])
     //#subscribe
   }
   override def postStop(): Unit = cluster.unsubscribe(self)
@@ -24,9 +27,7 @@ class SimpleClusterListener extends Actor with ActorLogging {
     case UnreachableMember(member) =>
       log.info("Member detected as unreachable: {}", member)
     case MemberRemoved(member, previousStatus) =>
-      log.info(
-        "Member is Removed: {} after {}",
-        member.address, previousStatus)
+      log.info("Member is Removed: {} after {}", member.address, previousStatus)
     case _: MemberEvent => // ignore
   }
 }

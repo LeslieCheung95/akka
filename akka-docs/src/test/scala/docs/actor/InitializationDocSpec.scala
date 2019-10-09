@@ -1,10 +1,11 @@
-/**
- * Copyright (C) 2009-2017 Lightbend Inc. <http://www.lightbend.com>
+/*
+ * Copyright (C) 2009-2019 Lightbend Inc. <https://www.lightbend.com>
  */
+
 package docs.actor
 
-import akka.actor.{ Props, Actor }
-import akka.testkit.{ ImplicitSender, AkkaSpec }
+import akka.actor.{ Actor, Props }
+import akka.testkit.{ AkkaSpec, ImplicitSender }
 
 object InitializationDocSpec {
 
@@ -44,7 +45,7 @@ object InitializationDocSpec {
     }
 
     def initialized: Receive = {
-      case "U OK?" => initializeMe foreach { sender() ! _ }
+      case "U OK?" => initializeMe.foreach { sender() ! _ }
     }
     //#messageInit
 

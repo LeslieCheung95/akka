@@ -1,6 +1,7 @@
-/**
- * Copyright (C) 2009-2017 Lightbend Inc. <http://www.lightbend.com>
+/*
+ * Copyright (C) 2009-2019 Lightbend Inc. <https://www.lightbend.com>
  */
+
 package akka.event.jul
 
 import java.util.logging
@@ -13,6 +14,7 @@ import akka.event.EventStream
 import akka.event.LoggerMessageQueueSemantics
 import akka.event.Logging._
 import akka.event.LoggingFilter
+import akka.util.unused
 
 /**
  * `java.util.logging` logger.
@@ -21,14 +23,14 @@ class JavaLogger extends Actor with RequiresMessageQueue[LoggerMessageQueueSeman
   import Logger.mapLevel
 
   def receive = {
-    case event @ Error(cause, _, _, _) ⇒ log(mapLevel(event.level), cause, event)
-    case event: Warning                ⇒ log(mapLevel(event.level), null, event)
-    case event: Info                   ⇒ log(mapLevel(event.level), null, event)
-    case event: Debug                  ⇒ log(mapLevel(event.level), null, event)
-    case InitializeLogger(_)           ⇒ sender() ! LoggerInitialized
+    case event @ Error(cause, _, _, _) => log(mapLevel(event.level), cause, event)
+    case event: Warning                => log(mapLevel(event.level), null, event)
+    case event: Info                   => log(mapLevel(event.level), null, event)
+    case event: Debug                  => log(mapLevel(event.level), null, event)
+    case InitializeLogger(_)           => sender() ! LoggerInitialized
   }
 
-  def log(level: logging.Level, cause: Throwable, event: LogEvent) {
+  def log(level: logging.Level, cause: Throwable, event: LogEvent): Unit = {
     val logger = Logger(event.logClass, event.logSource)
     val record = new logging.LogRecord(level, String.valueOf(event.message))
     record.setLoggerName(logger.getName)
@@ -52,6 +54,7 @@ trait JavaLogging {
  * Logger is a factory for obtaining JUL Loggers
  */
 object Logger {
+
   /**
    * @param logger - which logger
    * @return a Logger that corresponds for the given logger name
@@ -64,8 +67,8 @@ object Logger {
    * @return a Logger for the specified parameters
    */
   def apply(logClass: Class[_], logSource: String): logging.Logger = logClass match {
-    case c if c == classOf[DummyClassForStringSources] ⇒ apply(logSource)
-    case _ ⇒ logging.Logger.getLogger(logClass.getName)
+    case c if c == classOf[DummyClassForStringSources] => apply(logSource)
+    case _                                             => logging.Logger.getLogger(logClass.getName)
   }
 
   /**
@@ -74,11 +77,11 @@ object Logger {
   def root: logging.Logger = logging.Logger.getGlobal()
 
   def mapLevel(level: LogLevel): logging.Level = level.asInt match {
-    case InfoLevel.asInt    ⇒ logging.Level.INFO
-    case DebugLevel.asInt   ⇒ logging.Level.CONFIG
-    case WarningLevel.asInt ⇒ logging.Level.WARNING
-    case ErrorLevel.asInt   ⇒ logging.Level.SEVERE
-    case _                  ⇒ logging.Level.FINE
+    case InfoLevel.asInt    => logging.Level.INFO
+    case DebugLevel.asInt   => logging.Level.CONFIG
+    case WarningLevel.asInt => logging.Level.WARNING
+    case ErrorLevel.asInt   => logging.Level.SEVERE
+    case _                  => logging.Level.FINE
   }
 }
 
@@ -87,7 +90,7 @@ object Logger {
  * backend configuration to filter log events before publishing
  * the log events to the `eventStream`.
  */
-class JavaLoggingFilter(settings: ActorSystem.Settings, eventStream: EventStream) extends LoggingFilter {
+class JavaLoggingFilter(@unused settings: ActorSystem.Settings, eventStream: EventStream) extends LoggingFilter {
   import Logger.mapLevel
 
   def isErrorEnabled(logClass: Class[_], logSource: String) =

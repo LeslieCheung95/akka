@@ -1,6 +1,7 @@
-/**
- * Copyright (C) 2015-2017 Lightbend Inc. <http://www.lightbend.com>
+/*
+ * Copyright (C) 2015-2019 Lightbend Inc. <https://www.lightbend.com>
  */
+
 package akka.persistence.query.javadsl
 
 import akka.NotUsed
@@ -19,4 +20,3 @@ trait CurrentEventsByTagQuery extends ReadJournal {
    */
   def currentEventsByTag(tag: String, offset: Offset): Source[EventEnvelope, NotUsed]
 }
-

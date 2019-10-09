@@ -1,3 +1,7 @@
+/*
+ * Copyright (C) 2018-2019 Lightbend Inc. <https://www.lightbend.com>
+ */
+
 package docs.stream.cookbook
 
 import akka.NotUsed
@@ -21,13 +25,11 @@ class RecipeMissedTicks extends RecipeSpec {
 
       //#missed-ticks
       val missedTicks: Flow[Tick, Int, NotUsed] =
-        Flow[Tick].conflateWithSeed(seed = (_) => 0)(
-          (missedTicks, tick) => missedTicks + 1)
+        Flow[Tick].conflateWithSeed(seed = (_) => 0)((missedTicks, tick) => missedTicks + 1)
       //#missed-ticks
       val latch = TestLatch(3)
       val realMissedTicks: Flow[Tick, Int, NotUsed] =
-        Flow[Tick].conflateWithSeed(seed = (_) => 0)(
-          (missedTicks, tick) => { latch.countDown(); missedTicks + 1 })
+        Flow[Tick].conflateWithSeed(seed = (_) => 0)((missedTicks, tick) => { latch.countDown(); missedTicks + 1 })
 
       tickStream.via(realMissedTicks).to(sink).run()
 
@@ -43,7 +45,7 @@ class RecipeMissedTicks extends RecipeSpec {
       sub.expectNext(3)
 
       subscription.request(1)
-      sub.expectNoMsg(100.millis)
+      sub.expectNoMessage()
 
       pub.sendNext(())
       sub.expectNext(0)

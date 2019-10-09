@@ -1,7 +1,10 @@
-/**
- * Copyright (C) 2016-2017 Lightbend Inc. <http://www.lightbend.com>
+/*
+ * Copyright (C) 2016-2019 Lightbend Inc. <https://www.lightbend.com>
  */
+
 package akka.stream.scaladsl
+
+import java.util.zip.Deflater
 
 import akka.NotUsed
 import akka.stream.impl.io.compression._
@@ -16,10 +19,17 @@ object Compression {
    * coming out of the flow can be fully decompressed without waiting for additional data. This may
    * come at a compression performance cost for very small chunks.
    *
-   * FIXME: should compression level / strategy / flush mode be configurable? See https://github.com/akka/akka/issues/21849
+   * FIXME: should strategy / flush mode be configurable? See https://github.com/akka/akka/issues/21849
    */
-  def gzip: Flow[ByteString, ByteString, NotUsed] =
-    CompressionUtils.compressorFlow(() ⇒ new GzipCompressor)
+  def gzip: Flow[ByteString, ByteString, NotUsed] = gzip(Deflater.BEST_COMPRESSION)
+
+  /**
+   * Same as [[gzip]] with a custom level.
+   *
+   * @param level Compression level (0-9)
+   */
+  def gzip(level: Int): Flow[ByteString, ByteString, NotUsed] =
+    CompressionUtils.compressorFlow(() => new GzipCompressor(level))
 
   /**
    * Creates a Flow that decompresses a gzip-compressed stream of data.
@@ -27,8 +37,7 @@ object Compression {
    * @param maxBytesPerChunk Maximum length of an output [[ByteString]] chunk.
    */
   def gunzip(maxBytesPerChunk: Int = MaxBytesPerChunkDefault): Flow[ByteString, ByteString, NotUsed] =
-    Flow[ByteString].via(new GzipDecompressor(maxBytesPerChunk))
-      .named("gunzip")
+    Flow[ByteString].via(new GzipDecompressor(maxBytesPerChunk)).named("gunzip")
 
   /**
    * Creates a flow that deflate-compresses a stream of ByteString. Note that the compressor
@@ -36,10 +45,19 @@ object Compression {
    * coming out of the flow can be fully decompressed without waiting for additional data. This may
    * come at a compression performance cost for very small chunks.
    *
-   * FIXME: should compression level / strategy / flush mode be configurable? See https://github.com/akka/akka/issues/21849
+   * FIXME: should strategy / flush mode be configurable? See https://github.com/akka/akka/issues/21849
    */
-  def deflate: Flow[ByteString, ByteString, NotUsed] =
-    CompressionUtils.compressorFlow(() ⇒ new DeflateCompressor)
+  def deflate: Flow[ByteString, ByteString, NotUsed] = deflate(Deflater.BEST_COMPRESSION, false)
+
+  /**
+   * Same as [[deflate]] with configurable level and nowrap
+   *
+   * @param level Compression level (0-9)
+   * @param nowrap if true then use GZIP compatible compression
+   *
+   */
+  def deflate(level: Int, nowrap: Boolean): Flow[ByteString, ByteString, NotUsed] =
+    CompressionUtils.compressorFlow(() => new DeflateCompressor(level, nowrap))
 
   /**
    * Creates a Flow that decompresses a deflate-compressed stream of data.
@@ -47,6 +65,14 @@ object Compression {
    * @param maxBytesPerChunk Maximum length of an output [[ByteString]] chunk.
    */
   def inflate(maxBytesPerChunk: Int = MaxBytesPerChunkDefault): Flow[ByteString, ByteString, NotUsed] =
-    Flow[ByteString].via(new DeflateDecompressor(maxBytesPerChunk))
-      .named("inflate")
+    inflate(maxBytesPerChunk, false)
+
+  /**
+   * Creates a Flow that decompresses a deflate-compressed stream of data.
+   *
+   * @param maxBytesPerChunk Maximum length of an output [[ByteString]] chunk.
+   * @param nowrap if true then use GZIP compatible decompression
+   */
+  def inflate(maxBytesPerChunk: Int, nowrap: Boolean): Flow[ByteString, ByteString, NotUsed] =
+    Flow[ByteString].via(new DeflateDecompressor(maxBytesPerChunk, nowrap)).named("inflate")
 }

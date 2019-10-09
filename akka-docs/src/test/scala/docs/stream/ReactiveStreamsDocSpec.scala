@@ -1,10 +1,10 @@
-/**
- * Copyright (C) 2014-2017 Lightbend Inc. <http://www.lightbend.com>
+/*
+ * Copyright (C) 2014-2019 Lightbend Inc. <https://www.lightbend.com>
  */
+
 package docs.stream
 
 import akka.NotUsed
-import akka.stream.ActorMaterializer
 import akka.stream.scaladsl.{ Flow, Sink, Source }
 import akka.stream.testkit._
 import org.reactivestreams.Processor
@@ -13,8 +13,6 @@ import akka.testkit.AkkaSpec
 class ReactiveStreamsDocSpec extends AkkaSpec {
   import TwitterStreamQuickstartDocSpec._
 
-  implicit val materializer = ActorMaterializer()
-
   //#imports
   import org.reactivestreams.Publisher
   import org.reactivestreams.Subscriber
@@ -22,9 +20,7 @@ class ReactiveStreamsDocSpec extends AkkaSpec {
 
   trait Fixture {
     //#authors
-    val authors = Flow[Tweet]
-      .filter(_.hashtags.contains(akkaTag))
-      .map(_.author)
+    val authors = Flow[Tweet].filter(_.hashtags.contains(akkaTag)).map(_.author)
 
     //#authors
 
@@ -109,8 +105,7 @@ class ReactiveStreamsDocSpec extends AkkaSpec {
 
     //#source-fanoutPublisher
     val authorPublisher: Publisher[Author] =
-      Source.fromPublisher(tweets).via(authors)
-        .runWith(Sink.asPublisher(fanout = true))
+      Source.fromPublisher(tweets).via(authors).runWith(Sink.asPublisher(fanout = true))
 
     authorPublisher.subscribe(storage)
     authorPublisher.subscribe(alert)

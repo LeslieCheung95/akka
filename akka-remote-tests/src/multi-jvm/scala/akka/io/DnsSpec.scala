@@ -1,6 +1,7 @@
-/**
- * Copyright (C) 2017 Lightbend Inc. <http://www.lightbend.com>
+/*
+ * Copyright (C) 2017-2019 Lightbend Inc. <https://www.lightbend.com>
  */
+
 package akka.io
 
 import java.net.Inet4Address
@@ -21,11 +22,12 @@ class DnsSpec extends RemotingMultiNodeSpec(DnsSpec) {
   def initialParticipants = roles.size
 
   val ip4Address = InetAddress.getByAddress("localhost", Array[Byte](127, 0, 0, 1)) match {
-    case address: Inet4Address ⇒ address
+    case address: Inet4Address => address
   }
-  val ipv6Address = InetAddress.getByAddress("localhost", Array[Byte](0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1)) match {
-    case address: Inet6Address ⇒ address
-  }
+  val ipv6Address =
+    InetAddress.getByAddress("localhost", Array[Byte](0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1)) match {
+      case address: Inet6Address => address
+    }
 
   var temporaryValue: Option[String] = None
 
@@ -35,8 +37,8 @@ class DnsSpec extends RemotingMultiNodeSpec(DnsSpec) {
 
   override def afterTermination(): Unit = {
     temporaryValue match {
-      case Some(value) ⇒ sys.props.put("java.net.preferIPv6Addresses", value)
-      case _           ⇒ sys.props.remove("java.net.preferIPv6Addresses")
+      case Some(value) => sys.props.put("java.net.preferIPv6Addresses", value)
+      case _           => sys.props.remove("java.net.preferIPv6Addresses")
     }
   }
 

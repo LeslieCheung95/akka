@@ -1,6 +1,7 @@
 /*
- * Copyright (C) 2016-2017 Lightbend Inc. <http://www.lightbend.com>
+ * Copyright (C) 2016-2019 Lightbend Inc. <https://www.lightbend.com>
  */
+
 package docs.stream
 
 import java.util.concurrent.ThreadLocalRandom
@@ -11,10 +12,9 @@ import akka.testkit.{ AkkaSpec, EventFilter }
 
 class GraphStageLoggingDocSpec extends AkkaSpec("akka.loglevel = DEBUG") {
 
-  implicit val materializer = ActorMaterializer()
   implicit val ec = system.dispatcher
 
-  //#stage-with-logging
+  //#operator-with-logging
   import akka.stream.stage.{ GraphStage, GraphStageLogic, OutHandler, StageLogging }
 
   final class RandomLettersSource extends GraphStage[SourceShape[String]] {
@@ -38,17 +38,13 @@ class GraphStageLoggingDocSpec extends AkkaSpec("akka.loglevel = DEBUG") {
     def nextChar(): Char =
       ThreadLocalRandom.current().nextInt('a', 'z'.toInt + 1).toChar
   }
-  //#stage-with-logging
+  //#operator-with-logging
 
   "demonstrate logging in custom graphstage" in {
     val n = 10
     EventFilter.debug(start = "Randomly generated", occurrences = n).intercept {
-      Source.fromGraph(new RandomLettersSource)
-        .take(n)
-        .runWith(Sink.ignore)
-        .futureValue
+      Source.fromGraph(new RandomLettersSource).take(n).runWith(Sink.ignore).futureValue
     }
   }
 
 }
-

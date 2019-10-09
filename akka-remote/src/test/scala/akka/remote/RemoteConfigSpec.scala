@@ -1,20 +1,24 @@
-/**
- * Copyright (C) 2009-2017 Lightbend Inc. <http://www.lightbend.com>
+/*
+ * Copyright (C) 2009-2019 Lightbend Inc. <https://www.lightbend.com>
  */
+
 package akka.remote
 
 import language.postfixOps
+
 import akka.testkit.AkkaSpec
 import scala.concurrent.duration._
+
 import akka.remote.transport.AkkaProtocolSettings
-import akka.util.{ Helpers }
+import akka.util.Helpers
 import akka.util.Helpers.ConfigOps
 import akka.remote.transport.netty.{ NettyTransportSettings, SSLSettings }
+import com.github.ghik.silencer.silent
 
-class RemoteConfigSpec extends AkkaSpec(
-  """
+@silent // classic deprecated
+class RemoteConfigSpec extends AkkaSpec("""
     akka.actor.provider = remote
-    akka.remote.netty.tcp.port = 0
+    akka.remote.classic.netty.tcp.port = 0
   """) {
 
   "Remoting" should {
@@ -45,9 +49,10 @@ class RemoteConfigSpec extends AkkaSpec(
       Transports.size should ===(1)
       Transports.head._1 should ===(classOf[akka.remote.transport.netty.NettyTransport].getName)
       Transports.head._2 should ===(Nil)
-      Adapters should ===(Map(
-        "gremlin" → classOf[akka.remote.transport.FailureInjectorProvider].getName,
-        "trttl" → classOf[akka.remote.transport.ThrottlerProvider].getName))
+      Adapters should ===(
+        Map(
+          "gremlin" -> classOf[akka.remote.transport.FailureInjectorProvider].getName,
+          "trttl" -> classOf[akka.remote.transport.ThrottlerProvider].getName))
 
       WatchFailureDetectorImplementationClass should ===(classOf[PhiAccrualFailureDetector].getName)
       WatchHeartBeatInterval should ===(1 seconds)
@@ -58,15 +63,12 @@ class RemoteConfigSpec extends AkkaSpec(
       WatchFailureDetectorConfig.getMillisDuration("acceptable-heartbeat-pause") should ===(10 seconds)
       WatchFailureDetectorConfig.getMillisDuration("min-std-deviation") should ===(100 millis)
 
-      remoteSettings.config.getString("akka.remote.log-frame-size-exceeding") should ===("off")
+      remoteSettings.config.getString("akka.remote.classic.log-frame-size-exceeding") should ===("off")
     }
 
     "be able to parse AkkaProtocol related config elements" in {
       val settings = new AkkaProtocolSettings(RARP(system).provider.remoteSettings.config)
       import settings._
-
-      RequireCookie should ===(false)
-      SecureCookie should ===(None)
 
       TransportFailureDetectorImplementationClass should ===(classOf[DeadlineFailureDetector].getName)
       TransportHeartBeatInterval should ===(4.seconds)
@@ -75,13 +77,13 @@ class RemoteConfigSpec extends AkkaSpec(
     }
 
     "contain correct netty.tcp values in reference.conf" in {
-      val c = RARP(system).provider.remoteSettings.config.getConfig("akka.remote.netty.tcp")
+      val c = RARP(system).provider.remoteSettings.config.getConfig("akka.remote.classic.netty.tcp")
       val s = new NettyTransportSettings(c)
       import s._
 
       ConnectionTimeout should ===(15.seconds)
-      ConnectionTimeout should ===(new AkkaProtocolSettings(RARP(system).provider.remoteSettings.config)
-        .HandshakeTimeout)
+      ConnectionTimeout should ===(
+        new AkkaProtocolSettings(RARP(system).provider.remoteSettings.config).HandshakeTimeout)
       WriteBufferHighWaterMark should ===(None)
       WriteBufferLowWaterMark should ===(None)
       SendBufferSize should ===(Some(256000))
@@ -99,7 +101,7 @@ class RemoteConfigSpec extends AkkaSpec(
     }
 
     "contain correct socket worker pool configuration values in reference.conf" in {
-      val c = RARP(system).provider.remoteSettings.config.getConfig("akka.remote.netty.tcp")
+      val c = RARP(system).provider.remoteSettings.config.getConfig("akka.remote.classic.netty.tcp")
 
       // server-socket-worker-pool
       {
@@ -121,7 +123,7 @@ class RemoteConfigSpec extends AkkaSpec(
     }
 
     "contain correct ssl configuration values in reference.conf" in {
-      val sslSettings = new SSLSettings(system.settings.config.getConfig("akka.remote.netty.ssl.security"))
+      val sslSettings = new SSLSettings(system.settings.config.getConfig("akka.remote.classic.netty.ssl.security"))
       sslSettings.SSLKeyStore should ===("keystore")
       sslSettings.SSLKeyStorePassword should ===("changeme")
       sslSettings.SSLKeyPassword should ===("changeme")
@@ -133,7 +135,7 @@ class RemoteConfigSpec extends AkkaSpec(
     }
 
     "have debug logging of the failure injector turned off in reference.conf" in {
-      val c = RARP(system).provider.remoteSettings.config.getConfig("akka.remote.gremlin")
+      val c = RARP(system).provider.remoteSettings.config.getConfig("akka.remote.classic.gremlin")
       c.getBoolean("debug") should ===(false)
     }
   }

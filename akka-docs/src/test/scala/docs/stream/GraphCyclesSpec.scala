@@ -1,12 +1,14 @@
+/*
+ * Copyright (C) 2018-2019 Lightbend Inc. <https://www.lightbend.com>
+ */
+
 package docs.stream
 
-import akka.stream.{ ClosedShape, OverflowStrategy, ActorMaterializer }
+import akka.stream.{ ClosedShape, OverflowStrategy }
 import akka.stream.scaladsl._
 import akka.testkit.AkkaSpec
 
 class GraphCyclesSpec extends AkkaSpec {
-
-  implicit val materializer = ActorMaterializer()
 
   "Cycle demonstration" must {
     val source = Source.fromIterator(() => Iterator.from(0))

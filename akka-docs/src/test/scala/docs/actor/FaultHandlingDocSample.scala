@@ -1,6 +1,7 @@
-/**
- * Copyright (C) 2009-2017 Lightbend Inc. <http://www.lightbend.com>
+/*
+ * Copyright (C) 2009-2019 Lightbend Inc. <https://www.lightbend.com>
  */
+
 package docs.actor
 
 import language.postfixOps
@@ -96,7 +97,7 @@ class Worker extends Actor with ActorLogging {
   def receive = LoggingReceive {
     case Start if progressListener.isEmpty =>
       progressListener = Some(sender())
-      context.system.scheduler.schedule(Duration.Zero, 1 second, self, Do)
+      context.system.scheduler.scheduleWithFixedDelay(Duration.Zero, 1 second, self, Do)
 
     case Do =>
       counterService ! Increment(1)
@@ -104,9 +105,11 @@ class Worker extends Actor with ActorLogging {
       counterService ! Increment(1)
 
       // Send current progress to the initial sender
-      counterService ? GetCurrentCount map {
-        case CurrentCount(_, count) => Progress(100.0 * count / totalCount)
-      } pipeTo progressListener.get
+      (counterService ? GetCurrentCount)
+        .map {
+          case CurrentCount(_, count) => Progress(100.0 * count / totalCount)
+        }
+        .pipeTo(progressListener.get)
   }
 }
 
@@ -134,9 +137,7 @@ class CounterService extends Actor {
 
   // Restart the storage child when StorageException is thrown.
   // After 3 restarts within 5 seconds it will be stopped.
-  override val supervisorStrategy = OneForOneStrategy(
-    maxNrOfRetries = 3,
-    withinTimeRange = 5 seconds) {
+  override val supervisorStrategy = OneForOneStrategy(maxNrOfRetries = 3, withinTimeRange = 5 seconds) {
     case _: Storage.StorageException => Restart
   }
 
@@ -148,7 +149,7 @@ class CounterService extends Actor {
 
   import context.dispatcher // Use this Actors' Dispatcher as ExecutionContext
 
-  override def preStart() {
+  override def preStart(): Unit = {
     initStorage()
   }
 
@@ -158,10 +159,10 @@ class CounterService extends Actor {
    * failing. When it has been stopped we will schedule a Reconnect after a delay.
    * Watch the child so we receive Terminated message when it has been terminated.
    */
-  def initStorage() {
+  def initStorage(): Unit = {
     storage = Some(context.watch(context.actorOf(Props[Storage], name = "storage")))
     // Tell the counter, if any, to use the new storage
-    counter foreach { _ ! UseStorage(storage) }
+    counter.foreach { _ ! UseStorage(storage) }
     // We need the initial value to be able to operate
     storage.get ! Get(key)
   }
@@ -178,7 +179,7 @@ class CounterService extends Actor {
       for ((replyTo, msg) <- backlog) c.tell(msg, sender = replyTo)
       backlog = IndexedSeq.empty
 
-    case msg: Increment       => forwardOrPlaceInBacklog(msg)
+    case msg: Increment => forwardOrPlaceInBacklog(msg)
 
     case msg: GetCurrentCount => forwardOrPlaceInBacklog(msg)
 
@@ -187,7 +188,7 @@ class CounterService extends Actor {
       // We receive Terminated because we watch the child, see initStorage.
       storage = None
       // Tell the counter that there is no storage for the moment
-      counter foreach { _ ! UseStorage(None) }
+      counter.foreach { _ ! UseStorage(None) }
       // Try to re-establish storage after while
       context.system.scheduler.scheduleOnce(10 seconds, self, Reconnect)
 
@@ -196,16 +197,15 @@ class CounterService extends Actor {
       initStorage()
   }
 
-  def forwardOrPlaceInBacklog(msg: Any) {
+  def forwardOrPlaceInBacklog(msg: Any): Unit = {
     // We need the initial value from storage before we can start delegate to
     // the counter. Before that we place the messages in a backlog, to be sent
     // to the counter when it is initialized.
     counter match {
-      case Some(c) => c forward msg
+      case Some(c) => c.forward(msg)
       case None =>
         if (backlog.size >= MaxBacklog)
-          throw new ServiceUnavailable(
-            "CounterService not available, lack of initial value")
+          throw new ServiceUnavailable("CounterService not available, lack of initial value")
         backlog :+= (sender() -> msg)
     }
   }
@@ -245,10 +245,10 @@ class Counter(key: String, initialValue: Long) extends Actor {
 
   }
 
-  def storeCount() {
+  def storeCount(): Unit = {
     // Delegate dangerous work, to protect our valuable state.
     // We can continue without storage.
-    storage foreach { _ ! Store(Entry(key, count)) }
+    storage.foreach { _ ! Store(Entry(key, count)) }
   }
 
 }

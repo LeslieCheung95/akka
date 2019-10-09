@@ -1,6 +1,7 @@
-/**
- * Copyright (C) 2015-2017 Lightbend Inc. <http://www.lightbend.com>
+/*
+ * Copyright (C) 2015-2019 Lightbend Inc. <https://www.lightbend.com>
  */
+
 package akka.cluster.ddata
 
 import akka.annotation.InternalApi
@@ -21,7 +22,7 @@ import akka.annotation.InternalApi
  * i.e. if used outside the Replicator infrastructure, but the worst thing that can happen is that
  * a full merge is performed instead of the fast forward merge.
  */
-@InternalApi private[akka] trait FastMerge { self: ReplicatedData ⇒
+@InternalApi private[akka] trait FastMerge { self: ReplicatedData =>
 
   private var ancestor: FastMerge = null
 

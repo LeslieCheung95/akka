@@ -1,15 +1,14 @@
-/**
- *  Copyright (C) 2015-2017 Lightbend Inc. <http://www.lightbend.com/>
+/*
+ * Copyright (C) 2015-2019 Lightbend Inc. <https://www.lightbend.com>
  */
+
 package jdocs.stream.javadsl.cookbook;
 
 import akka.NotUsed;
 import akka.actor.ActorSystem;
 import akka.event.Logging;
 import akka.event.LoggingAdapter;
-import akka.stream.ActorMaterializer;
 import akka.stream.Attributes;
-import akka.stream.Materializer;
 import akka.stream.javadsl.Sink;
 import akka.stream.javadsl.Source;
 import akka.testkit.DebugFilter;
@@ -25,19 +24,20 @@ import java.util.Arrays;
 
 public class RecipeLoggingElements extends RecipeTest {
   static ActorSystem system;
-  static Materializer mat;
 
   @BeforeClass
   public static void setup() {
-    system = ActorSystem.create("RecipeLoggingElements", ConfigFactory.parseString("akka.loglevel=DEBUG\nakka.loggers = [akka.testkit.TestEventListener]"));
-    mat = ActorMaterializer.create(system);
+    system =
+        ActorSystem.create(
+            "RecipeLoggingElements",
+            ConfigFactory.parseString(
+                "akka.loglevel=DEBUG\nakka.loggers = [akka.testkit.TestEventListener]"));
   }
 
   @AfterClass
   public static void tearDown() {
     TestKit.shutdownActorSystem(system);
     system = null;
-    mat = null;
   }
 
   @Test
@@ -48,12 +48,13 @@ public class RecipeLoggingElements extends RecipeTest {
       {
         final Source<String, NotUsed> mySource = Source.from(Arrays.asList("1", "2", "3"));
 
-        //#println-debug
-        mySource.map(elem -> {
-          System.out.println(elem);
-          return elem;
-        });
-        //#println-debug
+        // #println-debug
+        mySource.map(
+            elem -> {
+              System.out.println(elem);
+              return elem;
+            });
+        // #println-debug
       }
     };
   }
@@ -68,30 +69,47 @@ public class RecipeLoggingElements extends RecipeTest {
       {
         final Source<String, NotUsed> mySource = Source.from(Arrays.asList("1", "2", "3"));
 
-        final int onElement = Logging.WarningLevel();
-        final int onFinish = Logging.ErrorLevel();
-        final int onFailure = Logging.ErrorLevel();
-
-        //#log-custom
+        // #log-custom
         // customise log levels
-        mySource.log("before-map")
-          .withAttributes(Attributes.createLogLevels(onElement, onFinish, onFailure))
-          .map(i -> analyse(i));
+        mySource
+            .log("before-map")
+            .withAttributes(
+                Attributes.createLogLevels(
+                    Logging.WarningLevel(), // onElement
+                    Logging.InfoLevel(), // onFinish
+                    Logging.DebugLevel() // onFailure
+                    ))
+            .map(i -> analyse(i));
 
         // or provide custom logging adapter
         final LoggingAdapter adapter = Logging.getLogger(system, "customLogger");
         mySource.log("custom", adapter);
-        //#log-custom
+        // #log-custom
 
-
-        new DebugFilter("customLogger", "[custom] Element: ", false, false, 3).intercept(new AbstractFunction0<Object> () {
-          public Void apply() {
-            mySource.log("custom", adapter).runWith(Sink.ignore(), mat);
-            return null;
-          }
-        }, system);
+        new DebugFilter("customLogger", "[custom] Element: ", false, false, 3)
+            .intercept(
+                new AbstractFunction0<Object>() {
+                  public Void apply() {
+                    mySource.log("custom", adapter).runWith(Sink.ignore(), system);
+                    return null;
+                  }
+                },
+                system);
       }
     };
   }
 
+  @Test
+  public void errorLog() throws Exception {
+    new TestKit(system) {
+      {
+        // #log-error
+        Source.from(Arrays.asList(-1, 0, 1))
+            .map(x -> 1 / x) // throwing ArithmeticException: / by zero
+            .log("error logging")
+            .runWith(Sink.ignore(), system);
+        // #log-error
+      }
+    };
+  }
 }

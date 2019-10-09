@@ -1,6 +1,8 @@
-/**
- * Copyright (C) 2009-2017 Lightbend Inc. <http://www.lightbend.com>
+/*
+ * Copyright (C) 2009-2019 Lightbend Inc. <https://www.lightbend.com>
  */
+
+syntax = "proto2";
 
 option java_package = "akka.cluster.protobuf.msg";
 option optimize_for = SPEED;
@@ -41,13 +43,29 @@ message Welcome {
 
 /**
  * InitJoin
- * Sends Empty
  */
+message InitJoin {
+  optional string currentConfig = 1;
+}
 
 /**
  * InitJoinAck
- * Sends an Address
  */
+message InitJoinAck {
+  required Address address = 1;
+  required ConfigCheck configCheck = 2;
+}
+
+message ConfigCheck {
+  enum Type {
+    UncheckedConfig = 1;
+    IncompatibleConfig = 2;
+    CompatibleConfig = 3;
+  }
+  required Type type = 1;
+
+  optional string clusterConfig = 2;
+}
 
 /**
  * InitJoinNack
@@ -60,14 +78,26 @@ message Welcome {
  ****************************************/
 
 /**
- * Heartbeat
- * Sends an Address
+ * Prior to version 2.5.24
+ * Heartbeat sends an Address
+ * Version 2.5.24 can deserialize this message but does not send it.
  */
+message Heartbeat {
+  required Address from = 1;
+  optional int64 sequenceNr = 2;
+  optional sint64 creationTime = 3;
+}
 
 /**
- * HeartbeatRsp
- * Sends an UniqueAddress
+ * Prior to version 2.5.24
+ * HeartbeatRsp Sends an UniqueAddress
+ * Version 2.5.24 can deserialize this message but does not send it.
  */
+message HeartBeatResponse {
+  required UniqueAddress from = 1;
+  optional int64 sequenceNr = 2;
+  optional int64 creationTime = 3;
+}
 
 /****************************************
  * Cluster Gossip Messages
@@ -186,7 +216,7 @@ message VectorClock {
 /**
  * An empty message
  */
- message Empty {
+message Empty {
  }
 
 /**
@@ -213,18 +243,18 @@ message UniqueAddress {
  * Cluster routing
  ****************************************/
 
- message ClusterRouterPool {
+message ClusterRouterPool {
    required Pool pool = 1;
    required ClusterRouterPoolSettings settings = 2;
  }
 
- message Pool {
+message Pool {
    required uint32 serializerId = 1;
    required string manifest = 2;
    required bytes data = 3;
  }
 
- message ClusterRouterPoolSettings {
+message ClusterRouterPoolSettings {
    required uint32 totalInstances = 1;
    required uint32 maxInstancesPerNode = 2;
    required bool allowLocalRoutees = 3;

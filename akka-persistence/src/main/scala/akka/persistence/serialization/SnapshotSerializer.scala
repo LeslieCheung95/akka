@@ -1,6 +1,5 @@
-/**
- * Copyright (C) 2009-2017 Lightbend Inc. <http://www.lightbend.com>
- * Copyright (C) 2012-2016 Eligotech BV.
+/*
+ * Copyright (C) 2009-2019 Lightbend Inc. <https://www.lightbend.com>
  */
 
 package akka.persistence.serialization
@@ -28,19 +27,13 @@ class SnapshotSerializer(val system: ExtendedActorSystem) extends BaseSerializer
 
   private lazy val serialization = SerializationExtension(system)
 
-  private lazy val transportInformation: Option[Serialization.Information] = {
-    val address = system.provider.getDefaultAddress
-    if (address.hasLocalScope) None
-    else Some(Serialization.Information(address, system))
-  }
-
   /**
    * Serializes a [[Snapshot]]. Delegates serialization of snapshot `data` to a matching
    * `akka.serialization.Serializer`.
    */
   def toBinary(o: AnyRef): Array[Byte] = o match {
-    case Snapshot(data) ⇒ snapshotToBinary(data.asInstanceOf[AnyRef])
-    case _              ⇒ throw new IllegalArgumentException(s"Can't serialize object of type ${o.getClass}")
+    case Snapshot(data) => snapshotToBinary(data.asInstanceOf[AnyRef])
+    case _              => throw new IllegalArgumentException(s"Can't serialize object of type ${o.getClass}")
   }
 
   /**
@@ -54,15 +47,8 @@ class SnapshotSerializer(val system: ExtendedActorSystem) extends BaseSerializer
     val out = new ByteArrayOutputStream
     writeInt(out, snapshotSerializer.identifier)
 
-    snapshotSerializer match {
-      case ser2: SerializerWithStringManifest ⇒
-        val manifest = ser2.manifest(snapshot)
-        if (manifest != "")
-          out.write(manifest.getBytes(UTF_8))
-      case _ ⇒
-        if (snapshotSerializer.includeManifest)
-          out.write(snapshot.getClass.getName.getBytes(UTF_8))
-    }
+    val ms = Serializers.manifestFor(snapshotSerializer, snapshot)
+    if (ms.nonEmpty) out.write(ms.getBytes(UTF_8))
 
     out.toByteArray
   }
@@ -100,11 +86,12 @@ class SnapshotSerializer(val system: ExtendedActorSystem) extends BaseSerializer
       out.toByteArray
     }
 
-    // serialize actor references with full address information (defaultAddress)
-    transportInformation match {
-      case Some(ti) ⇒ Serialization.currentTransportInformation.withValue(ti) { serialize() }
-      case None     ⇒ serialize()
-    }
+    val oldInfo = Serialization.currentTransportInformation.value
+    try {
+      if (oldInfo eq null)
+        Serialization.currentTransportInformation.value = system.provider.serializationInformation
+      serialize()
+    } finally Serialization.currentTransportInformation.value = oldInfo
   }
 
   private def snapshotFromBinary(bytes: Array[Byte]): AnyRef = {

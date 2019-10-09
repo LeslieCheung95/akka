@@ -1,6 +1,7 @@
-/**
- * Copyright (C) 2009-2017 Lightbend Inc. <http://www.lightbend.com>
+/*
+ * Copyright (C) 2009-2019 Lightbend Inc. <https://www.lightbend.com>
  */
+
 package akka.stream.impl.io.compression
 
 import akka.annotation.InternalApi
@@ -12,6 +13,7 @@ import akka.util.ByteString
  * A stateful object representing ongoing compression.
  */
 @InternalApi private[akka] abstract class Compressor {
+
   /**
    * Compresses the given input and returns compressed data. The implementation
    * can and will choose to buffer output data to improve compression. Use
@@ -33,6 +35,7 @@ import akka.util.ByteString
 
   /** Combines `compress` + `flush` */
   def compressAndFlush(input: ByteString): ByteString
+
   /** Combines `compress` + `finish` */
   def compressAndFinish(input: ByteString): ByteString
 

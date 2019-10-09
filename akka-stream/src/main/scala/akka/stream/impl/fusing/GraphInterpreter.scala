@@ -1,6 +1,7 @@
-/**
- * Copyright (C) 2015-2017 Lightbend Inc. <http://www.lightbend.com>
+/*
+ * Copyright (C) 2015-2019 Lightbend Inc. <https://www.lightbend.com>
  */
+
 package akka.stream.impl.fusing
 
 import akka.actor.ActorRef
@@ -9,9 +10,13 @@ import akka.stream.stage._
 import akka.stream._
 import java.util.concurrent.ThreadLocalRandom
 
-import akka.annotation.InternalApi
+import akka.Done
+import akka.annotation.{ InternalApi, InternalStableApi }
 
+import scala.concurrent.Promise
 import scala.util.control.NonFatal
+import akka.stream.Attributes.LogLevels
+import akka.stream.snapshot._
 
 /**
  * INTERNAL API
@@ -19,6 +24,7 @@ import scala.util.control.NonFatal
  * (See the class for the documentation of the internals)
  */
 @InternalApi private[akka] object GraphInterpreter {
+
   /**
    * Compile time constant, enable it for debug logging to the console.
    */
@@ -48,7 +54,12 @@ import scala.util.control.NonFatal
    * but there is no more element to grab.
    */
   case object Empty
+
+  /** Marker class that indicates that a port was failed with a given cause and a potential outstanding element */
   final case class Failed(ex: Throwable, previousElem: Any)
+
+  /** Marker class that indicates that a port was cancelled with a given cause */
+  final case class Cancelled(cause: Throwable)
 
   abstract class UpstreamBoundaryStageLogic[T] extends GraphStageLogic(inCount = 0, outCount = 1) {
     def out: Outlet[T]
@@ -67,23 +78,29 @@ import scala.util.control.NonFatal
    * between an output and input ports.
    *
    * @param id Identifier of the connection.
-   * @param inOwner The stage logic that corresponds to the input side of the connection.
-   * @param outOwner The stage logic that corresponds to the output side of the connection.
+   * @param inOwner The operator logic that corresponds to the input side of the connection.
+   * @param outOwner The operator logic that corresponds to the output side of the connection.
    * @param inHandler The handler that contains the callback for input events.
    * @param outHandler The handler that contains the callback for output events.
    */
+  @InternalStableApi
   final class Connection(
-    var id:         Int,
-    var inOwner:    GraphStageLogic,
-    var outOwner:   GraphStageLogic,
-    var inHandler:  InHandler,
-    var outHandler: OutHandler) {
-    var portState: Int = InReady
-    var slot: Any = Empty
+      var id: Int,
+      var inOwner: GraphStageLogic,
+      var outOwner: GraphStageLogic,
+      var inHandler: InHandler,
+      var outHandler: OutHandler) {
 
-    override def toString =
-      if (GraphInterpreter.Debug) s"Connection($id, $inOwner, $outOwner, $inHandler, $outHandler, $portState, $slot)"
-      else s"Connection($id, $portState, $slot, $inHandler, $outHandler)"
+    /** See [[GraphInterpreter]] about possible states */
+    var portState: Int = InReady
+
+    /**
+     * Can either be
+     *  * an in-flight element
+     *  * a failure (with an optional in-flight element), if elem.isInstanceOf[Failed]
+     *  * a cancellation cause, if elem.isInstanceOf[Cancelled]
+     */
+    var slot: Any = Empty
   }
 
   private val _currentInterpreter = new ThreadLocal[Array[AnyRef]] {
@@ -123,7 +140,7 @@ import scala.util.control.NonFatal
  *
  * The [[execute()]] method of the interpreter accepts an upper bound on the events it will process. After this limit
  * is reached or there are no more pending events to be processed, the call returns. It is possible to inspect
- * if there are unprocessed events left via the [[isSuspended]] method. [[isCompleted]] returns true once all stages
+ * if there are unprocessed events left via the [[isSuspended]] method. [[isCompleted]] returns true once all operators
  * reported completion inside the interpreter.
  *
  * The internal architecture of the interpreter is based on the usage of arrays and optimized for reducing allocations
@@ -171,7 +188,7 @@ import scala.util.control.NonFatal
  *                                         is a failure
  *
  * Sending an event is usually the following sequence:
- *  - An action is requested by a stage logic (push, pull, complete, etc.)
+ *  - An action is requested by an operator logic (push, pull, complete, etc.)
  *  - the state machine in portStates is transitioned from a ready state to a pending event
  *  - the affected Connection is enqueued
  *
@@ -179,7 +196,7 @@ import scala.util.control.NonFatal
  *  - the Connection to be processed is dequeued
  *  - the type of the event is determined from the bits set on portStates
  *  - the state machine in portStates is transitioned to a ready state
- *  - using the inHandlers/outHandlers table the corresponding callback is called on the stage logic.
+ *  - using the inHandlers/outHandlers table the corresponding callback is called on the operator logic.
  *
  * Because of the FIFO construction of the queue the interpreter is fair, i.e. a pending event is always executed
  * after a bounded number of other events. This property, together with suspendability means that even infinite cycles can
@@ -187,14 +204,13 @@ import scala.util.control.NonFatal
  * edge of a balance is pulled, dissolving the original cycle).
  */
 @InternalApi private[akka] final class GraphInterpreter(
-  val materializer: Materializer,
-  val log:          LoggingAdapter,
-  val logics:       Array[GraphStageLogic], // Array of stage logics
-  val connections:  Array[GraphInterpreter.Connection],
-  val onAsyncInput: (GraphStageLogic, Any, (Any) ⇒ Unit) ⇒ Unit,
-  val fuzzingMode:  Boolean,
-  val context:      ActorRef) {
-
+    val materializer: Materializer,
+    val log: LoggingAdapter,
+    val logics: Array[GraphStageLogic], // Array of stage logics
+    val connections: Array[GraphInterpreter.Connection],
+    val onAsyncInput: (GraphStageLogic, Any, Promise[Done], (Any) => Unit) => Unit,
+    val fuzzingMode: Boolean,
+    val context: ActorRef) {
   import GraphInterpreter._
 
   private[this] val ChaseLimit = if (fuzzingMode) 0 else 16
@@ -209,7 +225,7 @@ import scala.util.control.NonFatal
   private[this] var runningStages = logics.length
 
   // Counts how many active connections a stage has. Once it reaches zero, the stage is automatically stopped.
-  private[this] val shutdownCounter = Array.tabulate(logics.length) { i ⇒
+  private[this] val shutdownCounter = Array.tabulate(logics.length) { i =>
     logics(i).handlers.length
   }
 
@@ -228,7 +244,7 @@ import scala.util.control.NonFatal
   private[this] var chasedPull: Connection = NoEvent
 
   private def queueStatus: String = {
-    val contents = (queueHead until queueTail).map(idx ⇒ {
+    val contents = (queueHead until queueTail).map(idx => {
       val conn = eventQueue(idx & mask)
       conn
     })
@@ -268,14 +284,14 @@ import scala.util.control.NonFatal
   def isSuspended: Boolean = queueHead != queueTail
 
   /**
-   * Returns true if there are no more running stages and pending events.
+   * Returns true if there are no more running operators and pending events.
    */
   def isCompleted: Boolean = runningStages == 0 && !isSuspended
 
   /**
-   * Initializes the states of all the stage logics by calling preStart().
+   * Initializes the states of all the operator logics by calling preStart().
    * The passed-in materializer is intended to be a SubFusingActorMaterializer
-   * that avoids creating new Actors when stages materialize sub-flows. If no
+   * that avoids creating new Actors when operators materialize sub-flows. If no
    * such materializer is available, passing in `null` will reuse the normal
    * materializer for the GraphInterpreter—fusing is only an optimization.
    */
@@ -289,7 +305,7 @@ import scala.util.control.NonFatal
         logic.beforePreStart()
         logic.preStart()
       } catch {
-        case NonFatal(e) ⇒
+        case NonFatal(e) =>
           log.error(e, "Error during preStart in [{}]: {}", logic.originalStage.getOrElse(logic), e.getMessage)
           logic.failStage(e)
       }
@@ -299,7 +315,7 @@ import scala.util.control.NonFatal
   }
 
   /**
-   * Finalizes the state of all stages by calling postStop() (if necessary).
+   * Finalizes the state of all operators by calling postStop() (if necessary).
    */
   def finish(): Unit = {
     var i = 0
@@ -323,14 +339,15 @@ import scala.util.control.NonFatal
   private def outLogicName(connection: Connection): String = logics(connection.outOwner.stageId).toString
 
   private def shutdownCounters: String =
-    shutdownCounter.map(x ⇒ if (x >= KeepGoingFlag) s"${x & KeepGoingMask}(KeepGoing)" else x.toString).mkString(",")
+    shutdownCounter.map(x => if (x >= KeepGoingFlag) s"${x & KeepGoingMask}(KeepGoing)" else x.toString).mkString(",")
 
   /**
    * Executes pending events until the given limit is met. If there were remaining events, isSuspended will return
    * true.
    */
   def execute(eventLimit: Int): Int = {
-    if (Debug) println(s"$Name ---------------- EXECUTE $queueStatus (running=$runningStages, shutdown=$shutdownCounters)")
+    if (Debug)
+      println(s"$Name ---------------- EXECUTE $queueStatus (running=$runningStages, shutdown=$shutdownCounters)")
     val currentInterpreterHolder = _currentInterpreter.get()
     val previousInterpreter = currentInterpreterHolder(0)
     currentInterpreterHolder(0) = this
@@ -344,7 +361,12 @@ import scala.util.control.NonFatal
         def reportStageError(e: Throwable): Unit = {
           if (activeStage == null) throw e
           else {
-            log.error(e, "Error in stage [{}]: {}", activeStage.originalStage.getOrElse(activeStage), e.getMessage)
+            val loggingEnabled = activeStage.attributes.get[LogLevels] match {
+              case Some(levels) => levels.onFailure != LogLevels.Off
+              case None         => true
+            }
+            if (loggingEnabled)
+              log.error(e, "Error in stage [{}]: {}", activeStage.originalStage.getOrElse(activeStage), e.getMessage)
             activeStage.failStage(e)
 
             // Abort chasing
@@ -367,7 +389,7 @@ import scala.util.control.NonFatal
          */
         try processEvent(connection)
         catch {
-          case NonFatal(e) ⇒ reportStageError(e)
+          case NonFatal(e) => reportStageError(e)
         }
         afterStageHasRun(activeStage)
 
@@ -400,7 +422,7 @@ import scala.util.control.NonFatal
           chasedPush = NoEvent
           try processPush(connection)
           catch {
-            case NonFatal(e) ⇒ reportStageError(e)
+            case NonFatal(e) => reportStageError(e)
           }
           afterStageHasRun(activeStage)
         }
@@ -411,7 +433,7 @@ import scala.util.control.NonFatal
           chasedPull = NoEvent
           try processPull(connection)
           catch {
-            case NonFatal(e) ⇒ reportStageError(e)
+            case NonFatal(e) => reportStageError(e)
           }
           afterStageHasRun(activeStage)
         }
@@ -432,7 +454,7 @@ import scala.util.control.NonFatal
     eventsRemaining
   }
 
-  def runAsyncInput(logic: GraphStageLogic, evt: Any, handler: (Any) ⇒ Unit): Unit =
+  def runAsyncInput(logic: GraphStageLogic, evt: Any, promise: Promise[Done], handler: (Any) => Unit): Unit =
     if (!isStageCompleted(logic)) {
       if (GraphInterpreter.Debug) println(s"$Name ASYNC $evt ($handler) [$logic]")
       val currentInterpreterHolder = _currentInterpreter.get()
@@ -440,15 +462,26 @@ import scala.util.control.NonFatal
       currentInterpreterHolder(0) = this
       try {
         activeStage = logic
-        try handler(evt)
-        catch {
-          case NonFatal(ex) ⇒ logic.failStage(ex)
+        try {
+          handler(evt)
+          if (promise ne GraphStageLogic.NoPromise) {
+            promise.success(Done)
+            logic.onFeedbackDispatched()
+          }
+        } catch {
+          case NonFatal(ex) =>
+            if (promise ne GraphStageLogic.NoPromise) {
+              promise.failure(ex)
+              logic.onFeedbackDispatched()
+            }
+            logic.failStage(ex)
         }
         afterStageHasRun(logic)
       } finally currentInterpreterHolder(0) = previousInterpreter
     }
 
   // Decodes and processes a single event for the given connection
+  @InternalStableApi
   private def processEvent(connection: Connection): Unit = {
 
     // this must be the state after returning without delivering any signals, to avoid double-finalization of some unlucky stage
@@ -468,16 +501,22 @@ import scala.util.control.NonFatal
       // CANCEL
     } else if ((code & (OutClosed | InClosed)) == InClosed) {
       activeStage = connection.outOwner
-      if (Debug) println(s"$Name CANCEL ${inOwnerName(connection)} -> ${outOwnerName(connection)} (${connection.outHandler}) [${outLogicName(connection)}]")
+      if (Debug)
+        println(
+          s"$Name CANCEL ${inOwnerName(connection)} -> ${outOwnerName(connection)} (${connection.outHandler}) [${outLogicName(connection)}]")
       connection.portState |= OutClosed
       completeConnection(connection.outOwner.stageId)
-      connection.outHandler.onDownstreamFinish()
+      val cause = connection.slot.asInstanceOf[Cancelled].cause
+      connection.slot = Empty
+      connection.outHandler.onDownstreamFinish(cause)
     } else if ((code & (OutClosed | InClosed)) == OutClosed) {
       // COMPLETIONS
 
       if ((code & Pushing) == 0) {
         // Normal completion (no push pending)
-        if (Debug) println(s"$Name COMPLETE ${outOwnerName(connection)} -> ${inOwnerName(connection)} (${connection.inHandler}) [${inLogicName(connection)}]")
+        if (Debug)
+          println(
+            s"$Name COMPLETE ${outOwnerName(connection)} -> ${inOwnerName(connection)} (${connection.inHandler}) [${inLogicName(connection)}]")
         connection.portState |= InClosed
         activeStage = connection.inOwner
         completeConnection(connection.inOwner.stageId)
@@ -492,15 +531,21 @@ import scala.util.control.NonFatal
     }
   }
 
+  @InternalStableApi
   private def processPush(connection: Connection): Unit = {
-    if (Debug) println(s"$Name PUSH ${outOwnerName(connection)} -> ${inOwnerName(connection)}, ${connection.slot} (${connection.inHandler}) [${inLogicName(connection)}]")
+    if (Debug)
+      println(
+        s"$Name PUSH ${outOwnerName(connection)} -> ${inOwnerName(connection)}, ${connection.slot} (${connection.inHandler}) [${inLogicName(connection)}]")
     activeStage = connection.inOwner
     connection.portState ^= PushEndFlip
     connection.inHandler.onPush()
   }
 
+  @InternalStableApi
   private def processPull(connection: Connection): Unit = {
-    if (Debug) println(s"$Name PULL ${inOwnerName(connection)} -> ${outOwnerName(connection)} (${connection.outHandler}) [${outLogicName(connection)}]")
+    if (Debug)
+      println(
+        s"$Name PULL ${inOwnerName(connection)} -> ${outOwnerName(connection)} (${connection.outHandler}) [${outLogicName(connection)}]")
     activeStage = connection.outOwner
     connection.portState ^= PullEndFlip
     connection.outHandler.onPull()
@@ -521,7 +566,9 @@ import scala.util.control.NonFatal
   }
 
   def enqueue(connection: Connection): Unit = {
-    if (Debug) if (queueTail - queueHead > mask) new Exception(s"$Name internal queue full ($queueStatus) + $connection").printStackTrace()
+    if (Debug)
+      if (queueTail - queueHead > mask)
+        new Exception(s"$Name internal queue full ($queueStatus) + $connection").printStackTrace()
     eventQueue(queueTail & mask) = connection
     queueTail += 1
   }
@@ -546,12 +593,13 @@ import scala.util.control.NonFatal
     if (enabled) shutdownCounter(logic.stageId) |= KeepGoingFlag
     else shutdownCounter(logic.stageId) &= KeepGoingMask
 
+  @InternalStableApi
   private[stream] def finalizeStage(logic: GraphStageLogic): Unit = {
     try {
       logic.postStop()
       logic.afterPostStop()
     } catch {
-      case NonFatal(e) ⇒
+      case NonFatal(e) =>
         log.error(e, s"Error during postStop in [{}]: {}", logic.originalStage.getOrElse(logic), e.getMessage)
     }
   }
@@ -584,6 +632,7 @@ import scala.util.control.NonFatal
     if ((currentState & OutClosed) == 0) completeConnection(connection.outOwner.stageId)
   }
 
+  @InternalStableApi
   private[stream] def fail(connection: Connection, ex: Throwable): Unit = {
     val currentState = connection.portState
     if (Debug) println(s"$Name   fail($connection, $ex) [$currentState]")
@@ -602,12 +651,13 @@ import scala.util.control.NonFatal
     if ((currentState & OutClosed) == 0) completeConnection(connection.outOwner.stageId)
   }
 
-  private[stream] def cancel(connection: Connection): Unit = {
+  @InternalStableApi
+  private[stream] def cancel(connection: Connection, cause: Throwable): Unit = {
     val currentState = connection.portState
     if (Debug) println(s"$Name   cancel($connection) [$currentState]")
     connection.portState = currentState | InClosed
     if ((currentState & OutClosed) == 0) {
-      connection.slot = Empty
+      connection.slot = Cancelled(cause)
       if ((currentState & (Pulling | Pushing | InClosed)) == 0) enqueue(connection)
       else if (chasedPull eq connection) {
         // Abort chasing so Cancel is not lost (chasing does NOT decode the event but assumes it to be a PULL
@@ -620,49 +670,47 @@ import scala.util.control.NonFatal
   }
 
   /**
-   * Debug utility to dump the "waits-on" relationships in DOT format to the console for analysis of deadlocks.
-   * Use dot/graphviz to render graph.
+   * Debug utility to dump the "waits-on" relationships in an AST format for rendering in some suitable format for
+   * analysis of deadlocks.
    *
    * Only invoke this after the interpreter completely settled, otherwise the results might be off. This is a very
    * simplistic tool, make sure you are understanding what you are doing and then it will serve you well.
    */
-  def dumpWaits(): Unit = println(toString)
+  def toSnapshot: RunningInterpreter = {
 
-  override def toString: String = {
-    try {
-      val builder = new StringBuilder("\ndot format graph for deadlock analysis:\n")
-      builder.append("================================================================\n")
-      builder.append("digraph waits {\n")
-
-      for (i ← logics.indices) {
-        val logic = logics(i)
+    val logicSnapshots = logics.zipWithIndex.map {
+      case (logic, idx) =>
         val label = logic.originalStage.getOrElse(logic).toString
-        builder.append(s"""  N$i [label="$label"];""").append('\n')
-      }
-
-      val logicIndexes = logics.zipWithIndex.map { case (stage, idx) ⇒ stage → idx }.toMap
-      for (connection ← connections if connection != null) {
-        val inName = "N" + logicIndexes(connection.inOwner)
-        val outName = "N" + logicIndexes(connection.outOwner)
-
-        builder.append(s"  $inName -> $outName ")
-        connection.portState match {
-          case InReady ⇒
-            builder.append("[label=shouldPull, color=blue];")
-          case OutReady ⇒
-            builder.append(s"[label=shouldPush, color=red];")
-          case x if (x | InClosed | OutClosed) == (InClosed | OutClosed) ⇒
-            builder.append("[style=dotted, label=closed, dir=both];")
-          case _ ⇒
-        }
-        builder.append("\n")
-      }
-
-      builder.append("}\n================================================================\n")
-      builder.append(s"// $queueStatus (running=$runningStages, shutdown=${shutdownCounter.mkString(",")})")
-      builder.toString()
-    } catch {
-      case _: NoSuchElementException ⇒ "Not all logics has a stage listed, cannot create graph"
+        LogicSnapshotImpl(idx, label, logic.attributes)
     }
+    val logicIndexes = logics.zipWithIndex.map { case (stage, idx) => stage -> idx }.toMap
+    val connectionSnapshots = connections.filter(_ != null).map { connection =>
+      ConnectionSnapshotImpl(
+        connection.id,
+        logicSnapshots(logicIndexes(connection.inOwner)),
+        logicSnapshots(logicIndexes(connection.outOwner)),
+        connection.portState match {
+          case InReady                                                     => ConnectionSnapshot.ShouldPull
+          case OutReady                                                    => ConnectionSnapshot.ShouldPush
+          case x if (x & (InClosed | OutClosed)) == (InClosed | OutClosed) =>
+            // At least one side of the connection is closed: we show it as closed
+            ConnectionSnapshot.Closed
+          case _ =>
+            // This should not be possible: connection alive and both push and pull enqueued but not received
+            throw new IllegalStateException(s"Unexpected connection state for $connection: ${connection.portState}")
+
+        })
+    }
+
+    val stoppedStages: List[LogicSnapshot] = shutdownCounter.zipWithIndex.collect {
+      case (activeConnections, idx) if activeConnections < 1 => logicSnapshots(idx)
+    }.toList
+
+    RunningInterpreterImpl(
+      logicSnapshots.toVector,
+      connectionSnapshots.toVector,
+      queueStatus,
+      runningStages,
+      stoppedStages)
   }
 }

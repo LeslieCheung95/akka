@@ -1,39 +1,29 @@
-/**
- * Copyright (C) 2009-2017 Lightbend Inc. <http://www.lightbend.com>
+/*
+ * Copyright (C) 2009-2019 Lightbend Inc. <https://www.lightbend.com>
  */
 
 package docs.io
 
 import java.net.InetSocketAddress
 
-import scala.concurrent.duration.DurationInt
-
 import com.typesafe.config.ConfigFactory
-
-import akka.actor.{ Actor, ActorDSL, ActorLogging, ActorRef, ActorSystem, Props, SupervisorStrategy }
-import akka.actor.ActorDSL.inbox
+import akka.actor.{ Actor, ActorLogging, ActorRef, ActorSystem, Props, SupervisorStrategy }
 import akka.io.{ IO, Tcp }
 import akka.util.ByteString
+
+import scala.io.StdIn
 
 object EchoServer extends App {
 
   val config = ConfigFactory.parseString("akka.loglevel = DEBUG")
   implicit val system = ActorSystem("EchoServer", config)
 
-  // make sure to stop the system so that the application stops
-  try run()
-  finally system.terminate()
+  system.actorOf(Props(classOf[EchoManager], classOf[EchoHandler]), "echo")
+  system.actorOf(Props(classOf[EchoManager], classOf[SimpleEchoHandler]), "simple")
 
-  def run(): Unit = {
-    import ActorDSL._
-
-    // create two EchoManager and stop the application once one dies
-    val watcher = inbox()
-    watcher.watch(system.actorOf(Props(classOf[EchoManager], classOf[EchoHandler]), "echo"))
-    watcher.watch(system.actorOf(Props(classOf[EchoManager], classOf[SimpleEchoHandler]), "simple"))
-    watcher.receive(10.minutes)
-  }
-
+  println("Press enter to exit...")
+  StdIn.readLine()
+  system.terminate()
 }
 
 class EchoManager(handlerClass: Class[_]) extends Actor with ActorLogging {
@@ -50,7 +40,7 @@ class EchoManager(handlerClass: Class[_]) extends Actor with ActorLogging {
   }
 
   // do not restart
-  override def postRestart(thr: Throwable): Unit = context stop self
+  override def postRestart(thr: Throwable): Unit = context.stop(self)
 
   def receive = {
     case Bound(localAddress) =>
@@ -58,7 +48,7 @@ class EchoManager(handlerClass: Class[_]) extends Actor with ActorLogging {
 
     case CommandFailed(Bind(_, local, _, _, _)) =>
       log.warning(s"cannot bind to [$local]")
-      context stop self
+      context.stop(self)
 
     //#echo-manager
     case Connected(remote, local) =>
@@ -78,14 +68,13 @@ object EchoHandler {
     Props(classOf[EchoHandler], connection, remote)
 }
 
-class EchoHandler(connection: ActorRef, remote: InetSocketAddress)
-  extends Actor with ActorLogging {
+class EchoHandler(connection: ActorRef, remote: InetSocketAddress) extends Actor with ActorLogging {
 
   import Tcp._
   import EchoHandler._
 
   // sign death pact: this actor terminates when connection breaks
-  context watch connection
+  context.watch(connection)
 
   // start out in optimistic write-through mode
   def receive = writing
@@ -101,11 +90,11 @@ class EchoHandler(connection: ActorRef, remote: InetSocketAddress)
 
     case CommandFailed(Write(_, Ack(ack))) =>
       connection ! ResumeWriting
-      context become buffering(ack)
+      context.become(buffering(ack))
 
     case PeerClosed =>
-      if (storage.isEmpty) context stop self
-      else context become closing
+      if (storage.isEmpty) context.stop(self)
+      else context.become(closing)
   }
   //#writing
 
@@ -129,10 +118,10 @@ class EchoHandler(connection: ActorRef, remote: InetSocketAddress)
           } else {
             // then return to NACK-based again
             writeAll()
-            context become (if (peerClosed) closing else writing)
+            context.become(if (peerClosed) closing else writing)
           }
-        } else if (peerClosed) context stop self
-        else context become writing
+        } else if (peerClosed) context.stop(self)
+        else context.become(writing)
     }
   }
   //#buffering
@@ -153,7 +142,7 @@ class EchoHandler(connection: ActorRef, remote: InetSocketAddress)
 
     case Ack(ack) =>
       acknowledge(ack)
-      if (storage.isEmpty) context stop self
+      if (storage.isEmpty) context.stop(self)
   }
   //#closing
 
@@ -181,7 +170,7 @@ class EchoHandler(connection: ActorRef, remote: InetSocketAddress)
 
     if (stored > maxStored) {
       log.warning(s"drop connection to [$remote] (buffer overrun)")
-      context stop self
+      context.stop(self)
 
     } else if (stored > highWatermark) {
       log.debug(s"suspending reading at $currentOffset")
@@ -199,7 +188,7 @@ class EchoHandler(connection: ActorRef, remote: InetSocketAddress)
     transferred += size
 
     storageOffset += 1
-    storage = storage drop 1
+    storage = storage.drop(1)
 
     if (suspended && stored < lowWatermark) {
       log.debug("resuming reading")
@@ -224,13 +213,12 @@ class EchoHandler(connection: ActorRef, remote: InetSocketAddress)
 //#echo-handler
 
 //#simple-echo-handler
-class SimpleEchoHandler(connection: ActorRef, remote: InetSocketAddress)
-  extends Actor with ActorLogging {
+class SimpleEchoHandler(connection: ActorRef, remote: InetSocketAddress) extends Actor with ActorLogging {
 
   import Tcp._
 
   // sign death pact: this actor terminates when connection breaks
-  context watch connection
+  context.watch(connection)
 
   case object Ack extends Event
 
@@ -245,7 +233,7 @@ class SimpleEchoHandler(connection: ActorRef, remote: InetSocketAddress)
         case PeerClosed     => closing = true
       }, discardOld = false)
 
-    case PeerClosed => context stop self
+    case PeerClosed => context.stop(self)
   }
 
   //#storage-omitted
@@ -270,7 +258,7 @@ class SimpleEchoHandler(connection: ActorRef, remote: InetSocketAddress)
 
     if (stored > maxStored) {
       log.warning(s"drop connection to [$remote] (buffer overrun)")
-      context stop self
+      context.stop(self)
 
     } else if (stored > highWatermark) {
       log.debug(s"suspending reading")
@@ -286,7 +274,7 @@ class SimpleEchoHandler(connection: ActorRef, remote: InetSocketAddress)
     stored -= size
     transferred += size
 
-    storage = storage drop 1
+    storage = storage.drop(1)
 
     if (suspended && stored < lowWatermark) {
       log.debug("resuming reading")
@@ -295,7 +283,7 @@ class SimpleEchoHandler(connection: ActorRef, remote: InetSocketAddress)
     }
 
     if (storage.isEmpty) {
-      if (closing) context stop self
+      if (closing) context.stop(self)
       else context.unbecome()
     } else connection ! Write(storage(0), Ack)
   }

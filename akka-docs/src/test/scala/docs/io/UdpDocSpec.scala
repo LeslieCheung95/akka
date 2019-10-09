@@ -1,3 +1,7 @@
+/*
+ * Copyright (C) 2018-2019 Lightbend Inc. <https://www.lightbend.com>
+ */
+
 package docs.io
 
 import akka.testkit.AkkaSpec
@@ -46,7 +50,7 @@ object ScalaUdpDocSpec {
     def receive = {
       case Udp.Bound(local) =>
         //#listener
-        nextActor forward local
+        nextActor.forward(local)
         //#listener
         context.become(ready(sender()))
     }

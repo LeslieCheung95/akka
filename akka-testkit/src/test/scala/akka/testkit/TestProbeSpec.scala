@@ -1,15 +1,22 @@
+/*
+ * Copyright (C) 2018-2019 Lightbend Inc. <https://www.lightbend.com>
+ */
+
 package akka.testkit
 
 import language.postfixOps
-
 import akka.actor._
-import scala.concurrent.{ Await }
+
+import scala.concurrent.Await
 import scala.concurrent.duration._
 import akka.pattern.ask
+
 import scala.util.Try
 import java.util.concurrent.atomic.AtomicInteger
 
-class TestProbeSpec extends AkkaSpec with DefaultTimeout {
+import org.scalatest.concurrent.Eventually
+
+class TestProbeSpec extends AkkaSpec with DefaultTimeout with Eventually {
 
   "A TestProbe" must {
 
@@ -18,7 +25,7 @@ class TestProbeSpec extends AkkaSpec with DefaultTimeout {
       val future = tk.ref ? "hello"
       tk.expectMsg(0 millis, "hello") // TestActor runs on CallingThreadDispatcher
       tk.lastMessage.sender ! "world"
-      future should be('completed)
+      future.isCompleted should be(true)
       Await.result(future, timeout.duration) should ===("world")
     }
 
@@ -53,10 +60,12 @@ class TestProbeSpec extends AkkaSpec with DefaultTimeout {
       val restarts = new AtomicInteger(0)
 
       class FailingActor extends Actor {
-        override def receive = msg ⇒ msg match {
-          case _ ⇒
-            throw new RuntimeException("simulated failure")
-        }
+        override def receive =
+          msg =>
+            msg match {
+              case _ =>
+                throw new RuntimeException("simulated failure")
+            }
 
         override def postRestart(reason: Throwable): Unit = {
           restarts.incrementAndGet()
@@ -72,16 +81,16 @@ class TestProbeSpec extends AkkaSpec with DefaultTimeout {
       }
     }
 
-    def assertFailureMessageContains(expectedHint: String)(block: ⇒ Unit) {
+    def assertFailureMessageContains(expectedHint: String)(block: => Unit): Unit = {
       Try {
         block
       } match {
-        case scala.util.Failure(e: AssertionError) ⇒
+        case scala.util.Failure(e: AssertionError) =>
           if (!(e.getMessage contains expectedHint))
             fail(s"failure message did not contain hint! Was: ${e.getMessage}, expected to contain $expectedHint")
-        case scala.util.Failure(oth) ⇒
+        case scala.util.Failure(oth) =>
           fail(s"expected AssertionError but got: $oth")
-        case scala.util.Success(result) ⇒
+        case scala.util.Success(result) =>
           fail(s"expected failure but got: $result")
       }
     }
@@ -111,8 +120,8 @@ class TestProbeSpec extends AkkaSpec with DefaultTimeout {
       probe.setAutoPilot(new TestActor.AutoPilot {
         def run(sender: ActorRef, msg: Any): TestActor.AutoPilot =
           msg match {
-            case "stop" ⇒ TestActor.NoAutoPilot
-            case x      ⇒ testActor.tell(x, sender); TestActor.KeepRunning
+            case "stop" => TestActor.NoAutoPilot
+            case x      => testActor.tell(x, sender); TestActor.KeepRunning
           }
       })
       //#autopilot
@@ -131,7 +140,7 @@ class TestProbeSpec extends AkkaSpec with DefaultTimeout {
     }
 
     "be able to expect primitive types" in {
-      for (_ ← 1 to 7) testActor ! 42
+      for (_ <- 1 to 7) testActor ! 42
       expectMsgType[Int] should ===(42)
       expectMsgAnyClassOf(classOf[Int]) should ===(42)
       expectMsgAllClassOf(classOf[Int]) should ===(Seq(42))
@@ -149,8 +158,8 @@ class TestProbeSpec extends AkkaSpec with DefaultTimeout {
       probe.ref ! "done"
 
       probe.fishForMessage() {
-        case "fishForMe" ⇒ true
-        case _           ⇒ false
+        case "fishForMe" => true
+        case _           => false
       }
 
       probe.expectMsg(1 second, "done")
@@ -164,7 +173,7 @@ class TestProbeSpec extends AkkaSpec with DefaultTimeout {
       probe.ref ! "done"
 
       val msg: String = probe.fishForSpecificMessage() {
-        case msg @ "fishForMe" ⇒ msg
+        case msg @ "fishForMe" => msg
       }
 
       msg should be("fishForMe")
@@ -173,7 +182,7 @@ class TestProbeSpec extends AkkaSpec with DefaultTimeout {
     }
 
     "be able to ignore primitive types" in {
-      ignoreMsg { case 42 ⇒ true }
+      ignoreMsg { case 42 => true }
       testActor ! 42
       testActor ! "pigdog"
       expectMsg("pigdog")
@@ -187,7 +196,7 @@ class TestProbeSpec extends AkkaSpec with DefaultTimeout {
       }))
       system.stop(target)
       probe.ref ! "hello"
-      probe watch target
+      probe.watch(target)
       probe.expectMsg(1.seconds, "hello")
       probe.expectMsg(1.seconds, Terminated(target)(false, false))
     }
@@ -200,6 +209,18 @@ class TestProbeSpec extends AkkaSpec with DefaultTimeout {
     "have reasonable default name" in {
       val probe = new TestProbe(system)
       probe.ref.path.name should startWith("testProbe")
+    }
+
+    "expectNoMessage should pull the thingy" in {
+      val p = new TestProbe(system)
+
+      p.ref ! "nein" // no
+      p.ref ! "nie" // no
+
+      eventually(p.expectNoMessage(100.millis))
+
+      p.ref ! "tak" // yes
+      p.expectMsg("tak")
     }
   }
 

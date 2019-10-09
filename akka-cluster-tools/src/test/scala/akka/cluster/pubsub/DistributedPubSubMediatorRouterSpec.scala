@@ -1,9 +1,13 @@
+/*
+ * Copyright (C) 2009-2019 Lightbend Inc. <https://www.lightbend.com>
+ */
+
 package akka.cluster.pubsub
 
 import akka.testkit._
 import akka.routing.{ ConsistentHashingRoutingLogic, RouterEnvelope }
 import org.scalatest.WordSpecLike
-import akka.actor.{ DeadLetter, ActorRef }
+import akka.actor.ActorRef
 import com.typesafe.config.ConfigFactory
 
 case class WrappedMessage(msg: String) extends RouterEnvelope {
@@ -16,16 +20,15 @@ object DistributedPubSubMediatorRouterSpec {
   def config(routingLogic: String) = s"""
     akka.loglevel = INFO
     akka.actor.provider = "cluster"
-    akka.actor.serialize-messages = off
-    akka.remote.netty.tcp.port=0
+    akka.remote.classic.netty.tcp.port=0
     akka.remote.artery.canonical.port=0
     akka.remote.log-remote-lifecycle-events = off
     akka.cluster.pub-sub.routing-logic = $routingLogic
   """
 }
 
-trait DistributedPubSubMediatorRouterSpec { this: WordSpecLike with TestKit with ImplicitSender ⇒
-  def nonUnwrappingPubSub(mediator: ActorRef, testActor: ActorRef, msg: Any) {
+trait DistributedPubSubMediatorRouterSpec { this: WordSpecLike with TestKit with ImplicitSender =>
+  def nonUnwrappingPubSub(mediator: ActorRef, testActor: ActorRef, msg: Any): Unit = {
 
     val path = testActor.path.toStringWithoutAddress
 
@@ -82,38 +85,33 @@ trait DistributedPubSubMediatorRouterSpec { this: WordSpecLike with TestKit with
       mediator ! DistributedPubSubMediator.Unsubscribe("topic", testActor)
       expectMsgClass(classOf[DistributedPubSubMediator.UnsubscribeAck])
     }
-
-    "send message to dead letters if no recipients available" in {
-
-      val probe = TestProbe()
-      system.eventStream.subscribe(probe.ref, classOf[DeadLetter])
-      mediator ! DistributedPubSubMediator.Publish("nowhere", msg, sendOneMessageToEachGroup = true)
-      probe.expectMsgClass(classOf[DeadLetter])
-      system.eventStream.unsubscribe(probe.ref, classOf[DeadLetter])
-    }
   }
 }
 
 class DistributedPubSubMediatorWithRandomRouterSpec
-  extends AkkaSpec(DistributedPubSubMediatorRouterSpec.config("random"))
-  with DistributedPubSubMediatorRouterSpec with DefaultTimeout with ImplicitSender {
+    extends AkkaSpec(DistributedPubSubMediatorRouterSpec.config("random"))
+    with DistributedPubSubMediatorRouterSpec
+    with DefaultTimeout
+    with ImplicitSender {
 
   val mediator = DistributedPubSub(system).mediator
 
   "DistributedPubSubMediator when sending wrapped message" must {
     val msg = WrappedMessage("hello")
-    behave like nonUnwrappingPubSub(mediator, testActor, msg)
+    behave.like(nonUnwrappingPubSub(mediator, testActor, msg))
   }
 
   "DistributedPubSubMediator when sending unwrapped message" must {
     val msg = UnwrappedMessage("hello")
-    behave like nonUnwrappingPubSub(mediator, testActor, msg)
+    behave.like(nonUnwrappingPubSub(mediator, testActor, msg))
   }
 }
 
 class DistributedPubSubMediatorWithHashRouterSpec
-  extends AkkaSpec(DistributedPubSubMediatorRouterSpec.config("consistent-hashing"))
-  with DistributedPubSubMediatorRouterSpec with DefaultTimeout with ImplicitSender {
+    extends AkkaSpec(DistributedPubSubMediatorRouterSpec.config("consistent-hashing"))
+    with DistributedPubSubMediatorRouterSpec
+    with DefaultTimeout
+    with ImplicitSender {
 
   "DistributedPubSubMediator with Consistent Hash router" must {
     "not be allowed" when {
@@ -124,8 +122,10 @@ class DistributedPubSubMediatorWithHashRouterSpec
       }
       "constructed by settings" in {
         intercept[IllegalArgumentException] {
-          val config = ConfigFactory.parseString(DistributedPubSubMediatorRouterSpec.config("random"))
-            .withFallback(system.settings.config).getConfig("akka.cluster.pub-sub")
+          val config = ConfigFactory
+            .parseString(DistributedPubSubMediatorRouterSpec.config("random"))
+            .withFallback(system.settings.config)
+            .getConfig("akka.cluster.pub-sub")
           DistributedPubSubSettings(config).withRoutingLogic(ConsistentHashingRoutingLogic(system))
         }
       }

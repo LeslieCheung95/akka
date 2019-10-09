@@ -1,7 +1,8 @@
-package akka.cluster.sharding
+/*
+ * Copyright (C) 2018-2019 Lightbend Inc. <https://www.lightbend.com>
+ */
 
-import scala.concurrent.duration._
-import scala.language.postfixOps
+package akka.cluster.sharding
 
 import akka.cluster.sharding.ShardRegion.EntityId
 import akka.testkit.AkkaSpec
@@ -12,7 +13,6 @@ class AllAtOnceEntityRecoveryStrategySpec extends AkkaSpec {
   "AllAtOnceEntityRecoveryStrategy" must {
     "recover entities" in {
       val entities = Set[EntityId]("1", "2", "3", "4", "5")
-      val startTime = System.nanoTime()
       val result = strategy.recoverEntities(entities)
       result.size should ===(1)
       // the Future is completed immediately for allStrategy

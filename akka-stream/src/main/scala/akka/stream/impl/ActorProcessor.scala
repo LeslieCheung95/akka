@@ -1,15 +1,17 @@
-/**
- * Copyright (C) 2014-2017 Lightbend Inc. <http://www.lightbend.com>
+/*
+ * Copyright (C) 2014-2019 Lightbend Inc. <https://www.lightbend.com>
  */
+
 package akka.stream.impl
 
 import akka.actor._
 import akka.annotation.InternalApi
-import akka.stream.{ AbruptTerminationException, ActorMaterializerSettings }
-import akka.stream.actor.ActorSubscriber.OnSubscribe
-import akka.stream.actor.ActorSubscriberMessage.{ OnComplete, OnError, OnNext }
+import akka.stream.{ AbruptTerminationException, Attributes }
+import akka.stream.impl.ActorSubscriberMessage.{ OnComplete, OnError, OnNext, OnSubscribe }
 import org.reactivestreams.{ Processor, Subscriber, Subscription }
 import akka.event.Logging
+import akka.stream.ActorAttributes
+import akka.util.unused
 
 /**
  * INTERNAL API
@@ -27,8 +29,9 @@ import akka.event.Logging
 /**
  * INTERNAL API
  */
-@InternalApi private[akka] class ActorProcessor[I, O](impl: ActorRef) extends ActorPublisher[O](impl)
-  with Processor[I, O] {
+@InternalApi private[akka] class ActorProcessor[I, O](impl: ActorRef)
+    extends ActorPublisher[O](impl)
+    with Processor[I, O] {
   override def onSubscribe(s: Subscription): Unit = {
     ReactiveStreamsCompliance.requireNonNullSubscription(s)
     impl ! OnSubscribe(s)
@@ -47,7 +50,8 @@ import akka.event.Logging
 /**
  * INTERNAL API
  */
-@InternalApi private[akka] abstract class BatchingInputBuffer(val size: Int, val pump: Pump) extends DefaultInputTransferStates {
+@InternalApi private[akka] abstract class BatchingInputBuffer(val size: Int, val pump: Pump)
+    extends DefaultInputTransferStates {
   if (size < 1) throw new IllegalArgumentException(s"buffer size must be positive (was: $size)")
   if ((size & (size - 1)) != 0) throw new IllegalArgumentException(s"buffer size must be a power of two (was: $size)")
 
@@ -134,23 +138,23 @@ import akka.event.Logging
   }
 
   protected def waitingForUpstream: Actor.Receive = {
-    case OnComplete                ⇒ onComplete()
-    case OnSubscribe(subscription) ⇒ onSubscribe(subscription)
-    case OnError(cause)            ⇒ onError(cause)
+    case OnComplete                => onComplete()
+    case OnSubscribe(subscription) => onSubscribe(subscription)
+    case OnError(cause)            => onError(cause)
   }
 
   protected def upstreamRunning: Actor.Receive = {
-    case OnNext(element)           ⇒ enqueueInputElement(element)
-    case OnComplete                ⇒ onComplete()
-    case OnError(cause)            ⇒ onError(cause)
-    case OnSubscribe(subscription) ⇒ subscription.cancel() // spec rule 2.5
+    case OnNext(element)           => enqueueInputElement(element)
+    case OnComplete                => onComplete()
+    case OnError(cause)            => onError(cause)
+    case OnSubscribe(subscription) => subscription.cancel() // spec rule 2.5
   }
 
   protected def completed: Actor.Receive = {
-    case OnSubscribe(subscription) ⇒ throw new IllegalStateException("onSubscribe called after onError or onComplete")
+    case OnSubscribe(_) => throw new IllegalStateException("onSubscribe called after onError or onComplete")
   }
 
-  protected def inputOnError(e: Throwable): Unit = {
+  protected def inputOnError(@unused e: Throwable): Unit = {
     clear()
   }
 
@@ -159,7 +163,8 @@ import akka.event.Logging
 /**
  * INTERNAL API
  */
-@InternalApi private[akka] class SimpleOutputs(val actor: ActorRef, val pump: Pump) extends DefaultOutputTransferStates {
+@InternalApi private[akka] class SimpleOutputs(val actor: ActorRef, val pump: Pump)
+    extends DefaultOutputTransferStates {
   import ReactiveStreamsCompliance._
 
   protected var exposedPublisher: ActorPublisher[Any] = _
@@ -209,7 +214,7 @@ import akka.event.Logging
   protected def createSubscription(): Subscription = new ActorSubscription(actor, subscriber)
 
   private def subscribePending(subscribers: Seq[Subscriber[Any]]): Unit =
-    subscribers foreach { sub ⇒
+    subscribers.foreach { sub =>
       if (subscriber eq null) {
         subscriber = sub
         tryOnSubscribe(subscriber, createSubscription())
@@ -218,17 +223,17 @@ import akka.event.Logging
     }
 
   protected def waitingExposedPublisher: Actor.Receive = {
-    case ExposedPublisher(publisher) ⇒
+    case ExposedPublisher(publisher) =>
       exposedPublisher = publisher
       subreceive.become(downstreamRunning)
-    case other ⇒
+    case other =>
       throw new IllegalStateException(s"The first message must be ExposedPublisher but was [$other]")
   }
 
   protected def downstreamRunning: Actor.Receive = {
-    case SubscribePending ⇒
+    case SubscribePending =>
       subscribePending(exposedPublisher.takePendingSubscribers())
-    case RequestMore(subscription, elements) ⇒
+    case RequestMore(_, elements) =>
       if (elements < 1) {
         error(ReactiveStreamsCompliance.numberOfElementsInRequestMustBePositiveException)
       } else {
@@ -237,7 +242,7 @@ import akka.event.Logging
           downstreamDemand = Long.MaxValue // Long overflow, Reactive Streams Spec 3:17: effectively unbounded
         pump.pump()
       }
-    case Cancel(subscription) ⇒
+    case Cancel(_) =>
       downstreamCompleted = true
       exposedPublisher.shutdown(Some(new ActorPublisher.NormalShutdownException))
       pump.pump()
@@ -245,19 +250,29 @@ import akka.event.Logging
 
 }
 
+private[akka] object ActorProcessorImpl {
+  case object SubscriptionTimeout
+}
+
 /**
  * INTERNAL API
  */
-@InternalApi private[akka] abstract class ActorProcessorImpl(val settings: ActorMaterializerSettings)
-  extends Actor
-  with ActorLogging
-  with Pump {
+@InternalApi private[akka] abstract class ActorProcessorImpl(attributes: Attributes)
+    extends Actor
+    with ActorLogging
+    with Pump {
 
-  protected val primaryInputs: Inputs = new BatchingInputBuffer(settings.initialInputBufferSize, this) {
-    override def inputOnError(e: Throwable): Unit = ActorProcessorImpl.this.onError(e)
+  private val debugLoggingEnabled = attributes.mandatoryAttribute[ActorAttributes.DebugLogging].enabled
+
+  protected val primaryInputs: Inputs = {
+    val initialInputBufferSize = attributes.mandatoryAttribute[Attributes.InputBuffer].initial
+    new BatchingInputBuffer(initialInputBufferSize, this) {
+      override def inputOnError(e: Throwable): Unit = ActorProcessorImpl.this.onError(e)
+    }
   }
 
   protected val primaryOutputs: Outputs = new SimpleOutputs(self, this)
+  def subTimeoutHandling: Receive
 
   /**
    * Subclass may override [[#activeReceive]]
@@ -265,16 +280,17 @@ import akka.event.Logging
   final override def receive = new ExposedPublisherReceive(activeReceive, unhandled) {
     override def receiveExposedPublisher(ep: ExposedPublisher): Unit = {
       primaryOutputs.subreceive(ep)
-      context become activeReceive
+      context.become(activeReceive)
     }
   }
 
-  def activeReceive: Receive = primaryInputs.subreceive.orElse[Any, Unit](primaryOutputs.subreceive)
+  def activeReceive: Receive =
+    primaryInputs.subreceive.orElse[Any, Unit](primaryOutputs.subreceive).orElse(subTimeoutHandling)
 
   protected def onError(e: Throwable): Unit = fail(e)
 
   protected def fail(e: Throwable): Unit = {
-    if (settings.debugLogging)
+    if (debugLoggingEnabled)
       log.debug("fail due to: {}", e.getMessage)
     primaryInputs.cancel()
     primaryOutputs.error(e)

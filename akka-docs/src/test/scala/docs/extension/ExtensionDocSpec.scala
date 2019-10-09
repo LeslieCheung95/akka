@@ -1,6 +1,7 @@
-/**
- * Copyright (C) 2009-2017 Lightbend Inc. <http://www.lightbend.com>
+/*
+ * Copyright (C) 2009-2019 Lightbend Inc. <https://www.lightbend.com>
  */
+
 package docs.extension
 
 import java.util.concurrent.atomic.AtomicLong
@@ -26,9 +27,7 @@ import akka.actor.ExtensionId
 import akka.actor.ExtensionIdProvider
 import akka.actor.ExtendedActorSystem
 
-object CountExtension
-  extends ExtensionId[CountExtensionImpl]
-  with ExtensionIdProvider {
+object CountExtension extends ExtensionId[CountExtensionImpl] with ExtensionIdProvider {
   //The lookup method is required by ExtensionIdProvider,
   // so we return ourselves here, this allows us
   // to configure our extension to be loaded when

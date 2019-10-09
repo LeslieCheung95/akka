@@ -1,12 +1,10 @@
+/*
+ * Copyright (C) 2018-2019 Lightbend Inc. <https://www.lightbend.com>
+ */
+
 package docs.stream.cookbook
 
-import akka.stream.{ ActorMaterializerSettings, ActorMaterializer }
-
-import scala.collection.immutable
-import scala.concurrent.Await
-
 class RecipeCollectingMetrics extends RecipeSpec {
-  implicit val m2 = ActorMaterializer(ActorMaterializerSettings(system).withInputBuffer(1, 1))
 
   "Recipe for periodically collecting metrics" must {
 
@@ -35,7 +33,7 @@ class RecipeCollectingMetrics extends RecipeSpec {
       //      }
       //      //#periodic-metrics-collection
       //
-      //      val reports = graph.run().get(futureSink)
+      //      val reports = graph.withAttributes(Attributes.inputBuffer(1, 1).run().get(futureSink)
       //      val manualLoad = new StreamTestKit.AutoPublisher(loadPub)
       //      val manualTick = new StreamTestKit.AutoPublisher(tickPub)
       //
@@ -68,7 +66,7 @@ class RecipeCollectingMetrics extends RecipeSpec {
       //        the counter stream and store the final value, and also repeat this final value if no update is received between
       //      metrics collection rounds.
       //
-      //        To finish the recipe, we simply use :class:`ZipWith` to trigger reading the latest value from the ``currentLoad``
+      //        To finish the recipe, we use :class:`ZipWith` to trigger reading the latest value from the ``currentLoad``
       //        stream whenever a new ``Tick`` arrives on the stream of ticks, ``reportTicks``.
       //
       //        .. includecode:: ../code/docs/stream/cookbook/RecipeCollectingMetrics.scala#periodic-metrics-collection

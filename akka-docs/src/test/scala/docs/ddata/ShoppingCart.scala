@@ -1,10 +1,14 @@
+/*
+ * Copyright (C) 2018-2019 Lightbend Inc. <https://www.lightbend.com>
+ */
+
 package scala.docs.ddata
 
 import scala.concurrent.duration._
+
 import akka.actor.Actor
 import akka.actor.ActorRef
 import akka.actor.Props
-import akka.cluster.Cluster
 import akka.cluster.ddata.DistributedData
 import akka.cluster.ddata.LWWMap
 import akka.cluster.ddata.LWWMapKey
@@ -34,14 +38,15 @@ class ShoppingCart(userId: String) extends Actor {
   import akka.cluster.ddata.Replicator._
 
   val replicator = DistributedData(context.system).replicator
-  implicit val cluster = Cluster(context.system)
+  implicit val node = DistributedData(context.system).selfUniqueAddress
 
   val DataKey = LWWMapKey[String, LineItem]("cart-" + userId)
 
-  def receive = receiveGetCart
-    .orElse[Any, Unit](receiveAddItem)
-    .orElse[Any, Unit](receiveRemoveItem)
-    .orElse[Any, Unit](receiveOther)
+  def receive =
+    receiveGetCart
+      .orElse[Any, Unit](receiveAddItem)
+      .orElse[Any, Unit](receiveRemoveItem)
+      .orElse[Any, Unit](receiveOther)
 
   //#get-cart
   def receiveGetCart: Receive = {
@@ -65,8 +70,8 @@ class ShoppingCart(userId: String) extends Actor {
   //#add-item
   def receiveAddItem: Receive = {
     case cmd @ AddItem(item) =>
-      val update = Update(DataKey, LWWMap.empty[String, LineItem], writeMajority, Some(cmd)) {
-        cart => updateCart(cart, item)
+      val update = Update(DataKey, LWWMap.empty[String, LineItem], writeMajority, Some(cmd)) { cart =>
+        updateCart(cart, item)
       }
       replicator ! update
   }
@@ -75,8 +80,8 @@ class ShoppingCart(userId: String) extends Actor {
   def updateCart(data: LWWMap[String, LineItem], item: LineItem): LWWMap[String, LineItem] =
     data.get(item.productId) match {
       case Some(LineItem(_, _, existingQuantity)) =>
-        data + (item.productId -> item.copy(quantity = existingQuantity + item.quantity))
-      case None => data + (item.productId -> item)
+        data :+ (item.productId -> item.copy(quantity = existingQuantity + item.quantity))
+      case None => data :+ (item.productId -> item)
     }
 
   //#remove-item
@@ -88,13 +93,13 @@ class ShoppingCart(userId: String) extends Actor {
 
     case GetSuccess(DataKey, Some(RemoveItem(productId))) =>
       replicator ! Update(DataKey, LWWMap(), writeMajority, None) {
-        _ - productId
+        _.remove(node, productId)
       }
 
     case GetFailure(DataKey, Some(RemoveItem(productId))) =>
       // ReadMajority failed, fall back to best effort local value
       replicator ! Update(DataKey, LWWMap(), writeMajority, None) {
-        _ - productId
+        _.remove(node, productId)
       }
 
     case NotFound(DataKey, Some(RemoveItem(productId))) =>
@@ -105,7 +110,7 @@ class ShoppingCart(userId: String) extends Actor {
   def receiveOther: Receive = {
     case _: UpdateSuccess[_] | _: UpdateTimeout[_] =>
     // UpdateTimeout, will eventually be replicated
-    case e: UpdateFailure[_]                       => throw new IllegalStateException("Unexpected failure: " + e)
+    case e: UpdateFailure[_] => throw new IllegalStateException("Unexpected failure: " + e)
   }
 
 }

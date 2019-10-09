@@ -1,6 +1,7 @@
-/**
- * Copyright (C) 2016-2017 Lightbend Inc. <http://www.lightbend.com>
+/*
+ * Copyright (C) 2016-2019 Lightbend Inc. <https://www.lightbend.com>
  */
+
 package docs.stream
 
 //#stream-imports
@@ -9,7 +10,7 @@ import akka.stream.scaladsl._
 //#stream-imports
 
 //#other-imports
-import akka.{ NotUsed, Done }
+import akka.{ Done, NotUsed }
 import akka.actor.ActorSystem
 import akka.util.ByteString
 import scala.concurrent._
@@ -22,6 +23,7 @@ import org.scalatest.concurrent._
 
 //#main-app
 object Main extends App {
+  implicit val system = ActorSystem("QuickStart")
   // Code here
 }
 //#main-app
@@ -32,26 +34,21 @@ class QuickStartDocSpec extends WordSpec with BeforeAndAfterAll with ScalaFuture
   def println(any: Any) = () // silence printing stuff
 
   "demonstrate Source" in {
-    //#create-materializer
     implicit val system = ActorSystem("QuickStart")
-    implicit val materializer = ActorMaterializer()
-    //#create-materializer
 
     //#create-source
     val source: Source[Int, NotUsed] = Source(1 to 100)
     //#create-source
 
     //#run-source
-    source.runForeach(i => println(i))(materializer)
+    source.runForeach(i => println(i))
     //#run-source
 
     //#transform-source
     val factorials = source.scan(BigInt(1))((acc, next) => acc * next)
 
     val result: Future[IOResult] =
-      factorials
-        .map(num => ByteString(s"$num\n"))
-        .runWith(FileIO.toPath(Paths.get("factorials.txt")))
+      factorials.map(num => ByteString(s"$num\n")).runWith(FileIO.toPath(Paths.get("factorials.txt")))
     //#transform-source
 
     //#use-transformed-sink
@@ -61,7 +58,7 @@ class QuickStartDocSpec extends WordSpec with BeforeAndAfterAll with ScalaFuture
     //#add-streams
     factorials
       .zipWith(Source(0 to 100))((num, idx) => s"$idx! = $num")
-      .throttle(1, 1.second, 1, ThrottleMode.shaping)
+      .throttle(1, 1.second)
       //#add-streams
       .take(3)
       //#add-streams
@@ -69,7 +66,7 @@ class QuickStartDocSpec extends WordSpec with BeforeAndAfterAll with ScalaFuture
     //#add-streams
 
     //#run-source-and-terminate
-    val done: Future[Done] = source.runForeach(i => println(i))(materializer)
+    val done: Future[Done] = source.runForeach(i => println(i))
 
     implicit val ec = system.dispatcher
     done.onComplete(_ => system.terminate())
@@ -80,9 +77,7 @@ class QuickStartDocSpec extends WordSpec with BeforeAndAfterAll with ScalaFuture
 
   //#transform-sink
   def lineSink(filename: String): Sink[String, Future[IOResult]] =
-    Flow[String]
-      .map(s => ByteString(s + "\n"))
-      .toMat(FileIO.toPath(Paths.get(filename)))(Keep.right)
+    Flow[String].map(s => ByteString(s + "\n")).toMat(FileIO.toPath(Paths.get(filename)))(Keep.right)
   //#transform-sink
 
 }

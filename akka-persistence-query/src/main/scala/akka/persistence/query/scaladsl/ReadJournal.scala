@@ -1,6 +1,7 @@
 /*
- * Copyright (C) 2009-2017 Lightbend Inc. <http://www.lightbend.com>
+ * Copyright (C) 2009-2019 Lightbend Inc. <https://www.lightbend.com>
  */
+
 package akka.persistence.query.scaladsl
 
 /**
@@ -25,4 +26,3 @@ package akka.persistence.query.scaladsl
  * For Java API see [[akka.persistence.query.javadsl.ReadJournal]].
  */
 trait ReadJournal
-

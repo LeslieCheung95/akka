@@ -1,19 +1,19 @@
-/**
- * Copyright (C) 2014-2017 Lightbend Inc. <http://www.lightbend.com>
+/*
+ * Copyright (C) 2014-2019 Lightbend Inc. <https://www.lightbend.com>
  */
+
 package akka.stream.scaladsl
 
 import akka.stream.testkit.StreamSpec
-import akka.stream.{ ClosedShape, ActorMaterializer }
+import akka.stream.ClosedShape
 
 import akka.stream.testkit.Utils._
+import akka.stream.testkit.scaladsl.StreamTestKit._
 import scala.concurrent.duration._
 
 import scala.concurrent.Await
 
 class FlowPublisherSinkSpec extends StreamSpec {
-
-  implicit val materializer = ActorMaterializer()
 
   "A FlowPublisherSink" must {
 
@@ -25,7 +25,7 @@ class FlowPublisherSinkSpec extends StreamSpec {
 
     "be able to use Publisher in materialized value transformation" in {
       val f = Source(1 to 3).runWith(
-        JavaFlowSupport.Sink.asPublisher[Int](false).mapMaterializedValue { p ⇒ 
+        JavaFlowSupport.Sink.asPublisher[Int](false).mapMaterializedValue { p =>
           JavaFlowSupport.Source.fromPublisher(p).runFold(0)(_ + _)
         })
 

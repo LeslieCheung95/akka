@@ -1,5 +1,5 @@
-/**
- * Copyright (C) 2014-2017 Lightbend Inc. <http://www.lightbend.com>
+/*
+ * Copyright (C) 2014-2019 Lightbend Inc. <https://www.lightbend.com>
  */
 
 package akka.stream
@@ -8,6 +8,7 @@ import akka.{ Done, NotUsed }
 import akka.actor.ActorSystem
 import akka.stream.scaladsl._
 import java.util.concurrent.TimeUnit
+import akka.remote.artery.BenchTestSourceSameElement
 import org.openjdk.jmh.annotations._
 import scala.concurrent._
 import scala.concurrent.duration._
@@ -17,8 +18,6 @@ import scala.concurrent.duration._
 @BenchmarkMode(Array(Mode.Throughput))
 class FlatMapMergeBenchmark {
   implicit val system = ActorSystem("FlatMapMergeBenchmark")
-  val materializerSettings = ActorMaterializerSettings(system).withDispatcher("akka.test.stream-dispatcher")
-  implicit val materializer = ActorMaterializer(materializerSettings)
 
   val NumberOfElements = 100000
 
@@ -27,7 +26,8 @@ class FlatMapMergeBenchmark {
 
   var graph: RunnableGraph[Future[Done]] = _
 
-  def createSource(count: Int): Graph[SourceShape[Int], NotUsed] = Source.repeat(1).take(count)
+  def createSource(count: Int): Graph[SourceShape[java.lang.Integer], NotUsed] =
+    new BenchTestSourceSameElement(count, 1)
 
   @Setup
   def setup(): Unit = {
@@ -40,6 +40,8 @@ class FlatMapMergeBenchmark {
         Source.repeat(()).take(n).flatMapMerge(n, _ => subSource)
     }
     graph = Source.fromGraph(source).toMat(Sink.ignore)(Keep.right)
+    // eager init of materializer
+    SystemMaterializer(system).materializer
   }
 
   @TearDown

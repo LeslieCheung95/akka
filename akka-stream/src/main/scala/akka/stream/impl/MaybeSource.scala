@@ -1,13 +1,14 @@
-/**
- * Copyright (C) 2009-2017 Lightbend Inc. <http://www.lightbend.com>
+/*
+ * Copyright (C) 2009-2019 Lightbend Inc. <https://www.lightbend.com>
  */
+
 package akka.stream.impl
 
 import akka.annotation.InternalApi
 import akka.dispatch.ExecutionContexts
-import akka.stream.{ AbruptStageTerminationException, Attributes, Outlet, SourceShape }
 import akka.stream.impl.Stages.DefaultAttributes
 import akka.stream.stage.{ GraphStageLogic, GraphStageWithMaterializedValue, OutHandler }
+import akka.stream._
 import akka.util.OptionVal
 
 import scala.concurrent.Promise
@@ -16,14 +17,16 @@ import scala.util.Try
 /**
  * INTERNAL API
  */
-@InternalApi private[akka] object MaybeSource extends GraphStageWithMaterializedValue[SourceShape[AnyRef], Promise[Option[AnyRef]]] {
+@InternalApi private[akka] object MaybeSource
+    extends GraphStageWithMaterializedValue[SourceShape[AnyRef], Promise[Option[AnyRef]]] {
   val out = Outlet[AnyRef]("MaybeSource.out")
   override val shape = SourceShape(out)
 
   override protected def initialAttributes = DefaultAttributes.maybeSource
 
-  override def createLogicAndMaterializedValue(inheritedAttributes: Attributes): (GraphStageLogic, Promise[Option[AnyRef]]) = {
-    import scala.util.{ Success ⇒ ScalaSuccess, Failure ⇒ ScalaFailure }
+  override def createLogicAndMaterializedValue(
+      inheritedAttributes: Attributes): (GraphStageLogic, Promise[Option[AnyRef]]) = {
+    import scala.util.{ Failure => ScalaFailure, Success => ScalaSuccess }
     val promise = Promise[Option[AnyRef]]()
     val logic = new GraphStageLogic(shape) with OutHandler {
 
@@ -31,41 +34,40 @@ import scala.util.Try
 
       override def preStart(): Unit = {
         promise.future.value match {
-          case Some(value) ⇒
+          case Some(value) =>
             // already completed, shortcut
             handleCompletion(value)
-          case None ⇒
+          case None =>
             // callback on future completion
-            promise.future.onComplete(
-              getAsyncCallback(handleCompletion).invoke
-            )(ExecutionContexts.sameThreadExecutionContext)
+            promise.future.onComplete(getAsyncCallback(handleCompletion).invoke)(
+              ExecutionContexts.sameThreadExecutionContext)
         }
       }
 
       override def onPull(): Unit = arrivedEarly match {
-        case OptionVal.Some(value) ⇒
+        case OptionVal.Some(value) =>
           push(out, value)
           completeStage()
-        case OptionVal.None ⇒
+        case OptionVal.None =>
       }
 
       private def handleCompletion(elem: Try[Option[AnyRef]]): Unit = {
         elem match {
-          case ScalaSuccess(None) ⇒
+          case ScalaSuccess(None) =>
             completeStage()
-          case ScalaSuccess(Some(value)) ⇒
+          case ScalaSuccess(Some(value)) =>
             if (isAvailable(out)) {
               push(out, value)
               completeStage()
             } else {
               arrivedEarly = OptionVal.Some(value)
             }
-          case ScalaFailure(ex) ⇒
+          case ScalaFailure(ex) =>
             failStage(ex)
         }
       }
 
-      override def onDownstreamFinish(): Unit = {
+      override def onDownstreamFinish(cause: Throwable): Unit = {
         promise.tryComplete(ScalaSuccess(None))
       }
 

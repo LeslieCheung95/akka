@@ -1,25 +1,23 @@
-/**
- * Copyright (C) 2014-2017 Lightbend Inc. <http://www.lightbend.com>
+/*
+ * Copyright (C) 2014-2019 Lightbend Inc. <https://www.lightbend.com>
  */
+
 package docs.stream
 
 import akka.NotUsed
-import akka.actor.Cancellable
-import akka.stream.{ ClosedShape, FlowShape }
+import akka.actor.{ Actor, ActorSystem, Cancellable }
+import akka.stream.Materializer
+import akka.stream.{ ClosedShape, FlowShape, OverflowStrategy }
 import akka.stream.scaladsl._
 import akka.testkit.AkkaSpec
+import docs.CompileOnlySpec
 
-import scala.concurrent.{ Promise, Future }
+import scala.concurrent.{ Future, Promise }
+import scala.util.{ Failure, Success }
 
-class FlowDocSpec extends AkkaSpec {
+class FlowDocSpec extends AkkaSpec with CompileOnlySpec {
 
   implicit val ec = system.dispatcher
-
-  //#imports
-  import akka.stream.ActorMaterializer
-  //#imports
-
-  implicit val materializer = ActorMaterializer()
 
   "source is immutable" in {
     //#source-immutable
@@ -149,11 +147,12 @@ class FlowDocSpec extends AkkaSpec {
   "various ways of transforming materialized values" in {
     import scala.concurrent.duration._
 
-    val throttler = Flow.fromGraph(GraphDSL.create(Source.tick(1.second, 1.second, "test")) { implicit builder => tickSource =>
-      import GraphDSL.Implicits._
-      val zip = builder.add(ZipWith[String, Int, Int](Keep.right))
-      tickSource ~> zip.in0
-      FlowShape(zip.in1, zip.out)
+    val throttler = Flow.fromGraph(GraphDSL.create(Source.tick(1.second, 1.second, "test")) {
+      implicit builder => tickSource =>
+        import GraphDSL.Implicits._
+        val zip = builder.add(ZipWith[String, Int, Int](Keep.right))
+        tickSource ~> zip.in0
+        FlowShape(zip.in1, zip.out)
     })
 
     //#flow-mat-combine
@@ -222,10 +221,56 @@ class FlowDocSpec extends AkkaSpec {
 
   "defining asynchronous boundaries" in {
     //#flow-async
-    Source(List(1, 2, 3))
-      .map(_ + 1).async
-      .map(_ * 2)
-      .to(Sink.ignore)
+    Source(List(1, 2, 3)).map(_ + 1).async.map(_ * 2).to(Sink.ignore)
     //#flow-async
   }
+
+  "source pre-materialization" in {
+    //#source-prematerialization
+    val matValuePoweredSource =
+      Source.actorRef[String](bufferSize = 100, overflowStrategy = OverflowStrategy.fail)
+
+    val (actorRef, source) = matValuePoweredSource.preMaterialize()
+
+    actorRef ! "Hello!"
+
+    // pass source around for materialization
+    source.runWith(Sink.foreach(println))
+    //#source-prematerialization
+  }
+}
+
+object FlowDocSpec {
+
+  //#materializer-from-actor-context
+  final class RunWithMyself extends Actor {
+    implicit val mat = Materializer(context)
+
+    Source.maybe.runWith(Sink.onComplete {
+      case Success(done) => println(s"Completed: $done")
+      case Failure(ex)   => println(s"Failed: ${ex.getMessage}")
+    })
+
+    def receive = {
+      case "boom" =>
+        context.stop(self) // will also terminate the stream
+    }
+  }
+  //#materializer-from-actor-context
+
+  //#materializer-from-system-in-actor
+  final class RunForever(implicit val mat: Materializer) extends Actor {
+
+    Source.maybe.runWith(Sink.onComplete {
+      case Success(done) => println(s"Completed: $done")
+      case Failure(ex)   => println(s"Failed: ${ex.getMessage}")
+    })
+
+    def receive = {
+      case "boom" =>
+        context.stop(self) // will NOT terminate the stream (it's bound to the system!)
+    }
+  }
+  //#materializer-from-system-in-actor
+
 }

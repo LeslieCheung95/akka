@@ -1,6 +1,7 @@
-/**
- * Copyright (C) 2016-2017 Lightbend Inc. <http://www.lightbend.com>
+/*
+ * Copyright (C) 2016-2019 Lightbend Inc. <https://www.lightbend.com>
  */
+
 package akka.remote.artery
 
 import scala.annotation.tailrec
@@ -15,8 +16,6 @@ import akka.util.HashCode
 private[akka] object ImmutableLongMap {
   def empty[A >: Null](implicit t: ClassTag[A]): ImmutableLongMap[A] =
     new ImmutableLongMap(Array.emptyLongArray, Array.empty)
-
-  private val MaxScanLength = 10
 }
 
 /**
@@ -25,9 +24,8 @@ private[akka] object ImmutableLongMap {
  * Keys and values are backed by arrays and lookup is performed with binary
  * search. It's intended for rather small (<1000) maps.
  */
-private[akka] class ImmutableLongMap[A >: Null] private (
-  private val keys: Array[Long], private val values: Array[A])(implicit t: ClassTag[A]) {
-  import ImmutableLongMap.MaxScanLength
+private[akka] class ImmutableLongMap[A >: Null] private (private val keys: Array[Long], private val values: Array[A])(
+    implicit t: ClassTag[A]) {
 
   val size: Int = keys.length
 
@@ -108,7 +106,7 @@ private[akka] class ImmutableLongMap[A >: Null] private (
     keys.iterator
 
   override def toString: String =
-    keysIterator.map(key ⇒ s"$key -> ${get(key).get}").mkString("ImmutableLongMap(", ", ", ")")
+    keysIterator.map(key => s"$key -> ${get(key).get}").mkString("ImmutableLongMap(", ", ", ")")
 
   override def hashCode: Int = {
     var result = HashCode.SEED
@@ -118,7 +116,7 @@ private[akka] class ImmutableLongMap[A >: Null] private (
   }
 
   override def equals(obj: Any): Boolean = obj match {
-    case other: ImmutableLongMap[A] ⇒
+    case other: ImmutableLongMap[A] =>
       if (other eq this) true
       else if (size != other.size) false
       else if (size == 0 && other.size == 0) true
@@ -131,6 +129,6 @@ private[akka] class ImmutableLongMap[A >: Null] private (
         }
         check(0)
       }
-    case _ ⇒ false
+    case _ => false
   }
 }

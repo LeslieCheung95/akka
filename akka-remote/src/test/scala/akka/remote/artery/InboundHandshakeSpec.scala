@@ -1,16 +1,13 @@
-/**
- * Copyright (C) 2016-2017 Lightbend Inc. <http://www.lightbend.com>
+/*
+ * Copyright (C) 2016-2019 Lightbend Inc. <https://www.lightbend.com>
  */
+
 package akka.remote.artery
 
-import scala.concurrent.Await
-import scala.concurrent.duration._
 import akka.actor.Address
 import akka.remote.UniqueAddress
 import akka.remote.artery.OutboundHandshake.HandshakeReq
 import akka.remote.artery.OutboundHandshake.HandshakeRsp
-import akka.stream.ActorMaterializer
-import akka.stream.ActorMaterializerSettings
 import akka.stream.scaladsl.Keep
 import akka.stream.testkit.TestPublisher
 import akka.stream.testkit.TestSubscriber
@@ -21,27 +18,30 @@ import akka.testkit.ImplicitSender
 import akka.testkit.TestProbe
 import akka.util.OptionVal
 
+import scala.concurrent.Await
+import scala.concurrent.duration._
+
 object InboundHandshakeSpec {
   case object Control1 extends ControlMessage
   case object Control2 extends ControlMessage
   case object Control3 extends ControlMessage
 }
 
-class InboundHandshakeSpec extends AkkaSpec with ImplicitSender {
-
-  val matSettings = ActorMaterializerSettings(system).withFuzzing(true)
-  implicit val mat = ActorMaterializer(matSettings)(system)
+class InboundHandshakeSpec extends AkkaSpec("""
+    akka.stream.materializer.debug.fuzzing-mode = on
+  """) with ImplicitSender {
 
   val addressA = UniqueAddress(Address("akka", "sysA", "hostA", 1001), 1)
   val addressB = UniqueAddress(Address("akka", "sysB", "hostB", 1002), 2)
 
-  private def setupStream(inboundContext: InboundContext, timeout: FiniteDuration = 5.seconds): (TestPublisher.Probe[AnyRef], TestSubscriber.Probe[Any]) = {
+  private def setupStream(inboundContext: InboundContext): (TestPublisher.Probe[AnyRef], TestSubscriber.Probe[Any]) = {
     val recipient = OptionVal.None // not used
-    TestSource.probe[AnyRef]
-      .map(msg ⇒ InboundEnvelope(recipient, msg, OptionVal.None, addressA.uid,
-        inboundContext.association(addressA.uid)))
+    TestSource
+      .probe[AnyRef]
+      .map(msg =>
+        InboundEnvelope(recipient, msg, OptionVal.None, addressA.uid, inboundContext.association(addressA.uid)))
       .via(new InboundHandshake(inboundContext, inControlStream = true))
-      .map { case env: InboundEnvelope ⇒ env.message }
+      .map { case env: InboundEnvelope => env.message }
       .toMat(TestSink.probe[Any])(Keep.both)
       .run()
   }
@@ -69,8 +69,10 @@ class InboundHandshakeSpec extends AkkaSpec with ImplicitSender {
       upstream.sendNext(HandshakeReq(addressA, addressB.address))
       upstream.sendNext("msg1")
       downstream.expectNext("msg1")
-      val uniqueRemoteAddress = Await.result(
-        inboundContext.association(addressA.address).associationState.uniqueRemoteAddress, remainingOrDefault)
+      val uniqueRemoteAddress =
+        Await.result(
+          inboundContext.association(addressA.address).associationState.uniqueRemoteAddress,
+          remainingOrDefault)
       uniqueRemoteAddress should ===(addressA)
       downstream.cancel()
     }
@@ -83,7 +85,7 @@ class InboundHandshakeSpec extends AkkaSpec with ImplicitSender {
       downstream.request(10)
       // no HandshakeReq
       upstream.sendNext("msg17")
-      downstream.expectNoMsg(200.millis) // messages from unknown are dropped
+      downstream.expectNoMessage(200.millis) // messages from unknown are dropped
 
       // and accept messages after handshake
       upstream.sendNext(HandshakeReq(addressA, addressB.address))

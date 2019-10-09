@@ -1,13 +1,14 @@
-/**
- * Copyright (C) 2009-2017 Lightbend Inc. <http://www.lightbend.com>
+/*
+ * Copyright (C) 2009-2019 Lightbend Inc. <https://www.lightbend.com>
  */
+
 package docs.io
 
-import akka.actor.{ ActorRef, ActorLogging, Props, Actor, ActorSystem }
+import akka.actor.{ Actor, ActorLogging, ActorRef, ActorSystem, Props }
 import akka.io.Tcp._
-import akka.io.{ Tcp, IO }
+import akka.io.{ IO, Tcp }
 import java.net.InetSocketAddress
-import akka.testkit.{ ImplicitSender, TestProbe, AkkaSpec }
+import akka.testkit.{ AkkaSpec, ImplicitSender, TestProbe }
 import akka.util.ByteString
 
 import scala.concurrent.Await

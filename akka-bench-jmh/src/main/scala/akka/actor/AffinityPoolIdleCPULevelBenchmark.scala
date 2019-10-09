@@ -1,6 +1,7 @@
-/**
- * Copyright (C) 2014-2017 Lightbend Inc. <http://www.lightbend.com>
+/*
+ * Copyright (C) 2014-2019 Lightbend Inc. <https://www.lightbend.com>
  */
+
 package akka.actor
 
 import java.util.concurrent.TimeUnit
@@ -34,8 +35,9 @@ class AffinityPoolIdleCPULevelBenchmark {
 
     requireRightNumberOfCores(numThreads)
 
-    system = ActorSystem("AffinityPoolWaitingStrategyBenchmark", ConfigFactory.parseString(
-      s""" | akka {
+    system = ActorSystem(
+      "AffinityPoolWaitingStrategyBenchmark",
+      ConfigFactory.parseString(s""" | akka {
          |   log-dead-letters = off
          |   actor {
          |     affinity-dispatcher {
@@ -53,8 +55,7 @@ class AffinityPoolIdleCPULevelBenchmark {
          |
          |   }
          | }
-      """.stripMargin
-    ))
+      """.stripMargin))
   }
 
   @TearDown(Level.Trial)
@@ -63,6 +64,7 @@ class AffinityPoolIdleCPULevelBenchmark {
   @Benchmark
   @OutputTimeUnit(TimeUnit.NANOSECONDS)
   @OperationsPerInvocation(8000000)
-  def pingPong(): Unit = benchmarkPingPongActors(numMessagesPerActorPair, numActors, "affinity-dispatcher", throughPut, timeout)
+  def pingPong(): Unit =
+    benchmarkPingPongActors(numMessagesPerActorPair, numActors, "affinity-dispatcher", throughPut, timeout)
 
 }

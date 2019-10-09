@@ -1,13 +1,14 @@
-/**
- * Copyright (C) 2009-2017 Lightbend Inc. <http://www.lightbend.com>
+/*
+ * Copyright (C) 2009-2019 Lightbend Inc. <https://www.lightbend.com>
  */
+
 package akka.cluster.sharding
 
 import scala.concurrent.duration._
 import java.io.File
 
 import akka.actor._
-import akka.cluster.Cluster
+import akka.cluster.{ Cluster, MultiNodeClusterSpec }
 import akka.cluster.sharding.ShardRegion.GracefulShutdown
 import akka.persistence.Persistence
 import akka.persistence.journal.leveldb.{ SharedLeveldbJournal, SharedLeveldbStore }
@@ -24,19 +25,20 @@ object ClusterShardingGracefulShutdownSpec {
 
   class Entity extends Actor {
     def receive = {
-      case id: Int ⇒ sender() ! id
-      case StopEntity ⇒
+      case id: Int => sender() ! id
+      case StopEntity =>
         context.stop(self)
     }
   }
 
   val extractEntityId: ShardRegion.ExtractEntityId = {
-    case id: Int ⇒ (id.toString, id)
+    case id: Int => (id.toString, id)
   }
 
-  val extractShardId: ShardRegion.ExtractShardId = msg ⇒ msg match {
-    case id: Int ⇒ id.toString
-  }
+  val extractShardId: ShardRegion.ExtractShardId = msg =>
+    msg match {
+      case id: Int => id.toString
+    }
 
 }
 
@@ -44,7 +46,9 @@ abstract class ClusterShardingGracefulShutdownSpecConfig(val mode: String) exten
   val first = role("first")
   val second = role("second")
 
-  commonConfig(ConfigFactory.parseString(s"""
+  commonConfig(
+    ConfigFactory
+      .parseString(s"""
     akka.loglevel = INFO
     akka.actor.provider = "cluster"
     akka.remote.log-remote-lifecycle-events = off
@@ -63,14 +67,19 @@ abstract class ClusterShardingGracefulShutdownSpecConfig(val mode: String) exten
       dir = target/ClusterShardingGracefulShutdownSpec/sharding-ddata
       map-size = 10 MiB
     }
-    """))
+    """)
+      .withFallback(SharedLeveldbJournal.configToEnableJavaSerializationForTest)
+      .withFallback(MultiNodeClusterSpec.clusterConfig))
 }
 
-object PersistentClusterShardingGracefulShutdownSpecConfig extends ClusterShardingGracefulShutdownSpecConfig("persistence")
+object PersistentClusterShardingGracefulShutdownSpecConfig
+    extends ClusterShardingGracefulShutdownSpecConfig("persistence")
 object DDataClusterShardingGracefulShutdownSpecConfig extends ClusterShardingGracefulShutdownSpecConfig("ddata")
 
-class PersistentClusterShardingGracefulShutdownSpec extends ClusterShardingGracefulShutdownSpec(PersistentClusterShardingGracefulShutdownSpecConfig)
-class DDataClusterShardingGracefulShutdownSpec extends ClusterShardingGracefulShutdownSpec(DDataClusterShardingGracefulShutdownSpecConfig)
+class PersistentClusterShardingGracefulShutdownSpec
+    extends ClusterShardingGracefulShutdownSpec(PersistentClusterShardingGracefulShutdownSpecConfig)
+class DDataClusterShardingGracefulShutdownSpec
+    extends ClusterShardingGracefulShutdownSpec(DDataClusterShardingGracefulShutdownSpecConfig)
 
 class PersistentClusterShardingGracefulShutdownMultiJvmNode1 extends PersistentClusterShardingGracefulShutdownSpec
 class PersistentClusterShardingGracefulShutdownMultiJvmNode2 extends PersistentClusterShardingGracefulShutdownSpec
@@ -78,34 +87,38 @@ class PersistentClusterShardingGracefulShutdownMultiJvmNode2 extends PersistentC
 class DDataClusterShardingGracefulShutdownMultiJvmNode1 extends DDataClusterShardingGracefulShutdownSpec
 class DDataClusterShardingGracefulShutdownMultiJvmNode2 extends DDataClusterShardingGracefulShutdownSpec
 
-abstract class ClusterShardingGracefulShutdownSpec(config: ClusterShardingGracefulShutdownSpecConfig) extends MultiNodeSpec(config) with STMultiNodeSpec with ImplicitSender {
+abstract class ClusterShardingGracefulShutdownSpec(config: ClusterShardingGracefulShutdownSpecConfig)
+    extends MultiNodeSpec(config)
+    with STMultiNodeSpec
+    with ImplicitSender {
   import ClusterShardingGracefulShutdownSpec._
   import config._
 
   override def initialParticipants = roles.size
 
-  val storageLocations = List(new File(system.settings.config.getString(
-    "akka.cluster.sharding.distributed-data.durable.lmdb.dir")).getParentFile)
+  val storageLocations = List(
+    new File(system.settings.config.getString("akka.cluster.sharding.distributed-data.durable.lmdb.dir")).getParentFile)
 
-  override protected def atStartup() {
-    storageLocations.foreach(dir ⇒ if (dir.exists) FileUtils.deleteQuietly(dir))
+  override protected def atStartup(): Unit = {
+    storageLocations.foreach(dir => if (dir.exists) FileUtils.deleteQuietly(dir))
     enterBarrier("startup")
   }
 
-  override protected def afterTermination() {
-    storageLocations.foreach(dir ⇒ if (dir.exists) FileUtils.deleteQuietly(dir))
+  override protected def afterTermination(): Unit = {
+    storageLocations.foreach(dir => if (dir.exists) FileUtils.deleteQuietly(dir))
   }
 
   def join(from: RoleName, to: RoleName): Unit = {
     runOn(from) {
-      Cluster(system) join node(to).address
+      Cluster(system).join(node(to).address)
       startSharding()
     }
     enterBarrier(from.name + "-joined")
   }
 
   def startSharding(): Unit = {
-    val allocationStrategy = new ShardCoordinator.LeastShardAllocationStrategy(rebalanceThreshold = 2, maxSimultaneousRebalance = 1)
+    val allocationStrategy =
+      new ShardCoordinator.LeastShardAllocationStrategy(rebalanceThreshold = 2, maxSimultaneousRebalance = 1)
     ClusterSharding(system).start(
       typeName = "Entity",
       entityProps = Props[Entity],
@@ -147,7 +160,7 @@ abstract class ClusterShardingGracefulShutdownSpec(config: ClusterShardingGracef
 
       awaitAssert {
         val p = TestProbe()
-        val regionAddresses = (1 to 100).map { n ⇒
+        val regionAddresses = (1 to 100).map { n =>
           region.tell(n, p.ref)
           p.expectMsg(1.second, n)
           p.lastSender.path.address
@@ -165,7 +178,7 @@ abstract class ClusterShardingGracefulShutdownSpec(config: ClusterShardingGracef
       runOn(first) {
         awaitAssert {
           val p = TestProbe()
-          for (n ← 1 to 200) {
+          for (n <- 1 to 200) {
             region.tell(n, p.ref)
             p.expectMsg(1.second, n)
             p.lastSender.path should be(region.path / n.toString / n.toString)
@@ -184,7 +197,8 @@ abstract class ClusterShardingGracefulShutdownSpec(config: ClusterShardingGracef
 
     "gracefully shutdown empty region" in within(30.seconds) {
       runOn(first) {
-        val allocationStrategy = new ShardCoordinator.LeastShardAllocationStrategy(rebalanceThreshold = 2, maxSimultaneousRebalance = 1)
+        val allocationStrategy =
+          new ShardCoordinator.LeastShardAllocationStrategy(rebalanceThreshold = 2, maxSimultaneousRebalance = 1)
         val regionEmpty = ClusterSharding(system).start(
           typeName = "EntityEmpty",
           entityProps = Props[Entity],
@@ -202,4 +216,3 @@ abstract class ClusterShardingGracefulShutdownSpec(config: ClusterShardingGracef
 
   }
 }
-

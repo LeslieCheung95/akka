@@ -1,6 +1,7 @@
-/**
- * Copyright (C) 2015-2017 Lightbend Inc. <http://www.lightbend.com>
+/*
+ * Copyright (C) 2015-2019 Lightbend Inc. <https://www.lightbend.com>
  */
+
 package docs.stream
 
 import akka.NotUsed
@@ -16,8 +17,6 @@ import scala.concurrent.duration._
 import scala.collection.immutable.Iterable
 
 class GraphStageDocSpec extends AkkaSpec {
-
-  implicit val materializer = ActorMaterializer()
 
   "Demonstrate creation of GraphStage boilerplate" in {
     //#boilerplate-example
@@ -39,9 +38,11 @@ class GraphStageDocSpec extends AkkaSpec {
 
   "Demonstrate creation of GraphStage Source" in {
     //#custom-source-example
+    import akka.stream.Attributes
+    import akka.stream.Outlet
     import akka.stream.SourceShape
-    import akka.stream.Graph
     import akka.stream.stage.GraphStage
+    import akka.stream.stage.GraphStageLogic
     import akka.stream.stage.OutHandler
 
     class NumbersSource extends GraphStage[SourceShape[Int]] {
@@ -87,8 +88,11 @@ class GraphStageDocSpec extends AkkaSpec {
 
   "Demonstrate creation of GraphStage Sink" in {
     //#custom-sink-example
+    import akka.stream.Attributes
+    import akka.stream.Inlet
     import akka.stream.SinkShape
     import akka.stream.stage.GraphStage
+    import akka.stream.stage.GraphStageLogic
     import akka.stream.stage.InHandler
 
     class StdoutSink extends GraphStage[SinkShape[Int]] {
@@ -143,9 +147,7 @@ class GraphStageDocSpec extends AkkaSpec {
     val stringLength = Flow.fromGraph(new Map[String, Int](_.length))
 
     val result =
-      Source(Vector("one", "two", "three"))
-        .via(stringLength)
-        .runFold(Seq.empty[Int])((elem, acc) => elem :+ acc)
+      Source(Vector("one", "two", "three")).via(stringLength).runFold(Seq.empty[Int])((elem, acc) => elem :+ acc)
 
     Await.result(result, 3.seconds) should ===(Seq(3, 3, 5))
   }
@@ -182,9 +184,7 @@ class GraphStageDocSpec extends AkkaSpec {
     val evenFilter = Flow.fromGraph(new Filter[Int](_ % 2 == 0))
 
     val result =
-      Source(Vector(1, 2, 3, 4, 5, 6))
-        .via(evenFilter)
-        .runFold(Seq.empty[Int])((elem, acc) => elem :+ acc)
+      Source(Vector(1, 2, 3, 4, 5, 6)).via(evenFilter).runFold(Seq.empty[Int])((elem, acc) => elem :+ acc)
 
     Await.result(result, 3.seconds) should ===(Seq(2, 4, 6))
   }
@@ -235,9 +235,7 @@ class GraphStageDocSpec extends AkkaSpec {
     val duplicator = Flow.fromGraph(new Duplicator[Int])
 
     val result =
-      Source(Vector(1, 2, 3))
-        .via(duplicator)
-        .runFold(Seq.empty[Int])((elem, acc) => elem :+ acc)
+      Source(Vector(1, 2, 3)).via(duplicator).runFold(Seq.empty[Int])((elem, acc) => elem :+ acc)
 
     Await.result(result, 3.seconds) should ===(Seq(1, 1, 2, 2, 3, 3))
   }
@@ -275,9 +273,7 @@ class GraphStageDocSpec extends AkkaSpec {
     val duplicator = Flow.fromGraph(new Duplicator[Int])
 
     val result =
-      Source(Vector(1, 2, 3))
-        .via(duplicator)
-        .runFold(Seq.empty[Int])((elem, acc) => elem :+ acc)
+      Source(Vector(1, 2, 3)).via(duplicator).runFold(Seq.empty[Int])((elem, acc) => elem :+ acc)
 
     Await.result(result, 3.seconds) should ===(Seq(1, 1, 2, 2, 3, 3))
 
@@ -286,14 +282,11 @@ class GraphStageDocSpec extends AkkaSpec {
   "Demonstrate chaining of graph stages" in {
     val sink = Sink.fold[List[Int], Int](List.empty[Int])((acc, n) => acc :+ n)
 
-    //#graph-stage-chain
-    val resultFuture = Source(1 to 5)
-      .via(new Filter(_ % 2 == 0))
-      .via(new Duplicator())
-      .via(new Map(_ / 2))
-      .runWith(sink)
+    //#graph-operator-chain
+    val resultFuture =
+      Source(1 to 5).via(new Filter(_ % 2 == 0)).via(new Duplicator()).via(new Map(_ / 2)).runWith(sink)
 
-    //#graph-stage-chain
+    //#graph-operator-chain
 
     Await.result(resultFuture, 3.seconds) should ===(List(1, 1, 2, 2))
   }
@@ -338,7 +331,8 @@ class GraphStageDocSpec extends AkkaSpec {
     val in = TestPublisher.probe[Int]()
     val out = TestSubscriber.probe[Int]()
 
-    Source.fromPublisher(in)
+    Source
+      .fromPublisher(in)
       .via(duplicator)
       .to(Sink.fromSubscriber(out))
       .withAttributes(Attributes.inputBuffer(1, 1))
@@ -353,7 +347,7 @@ class GraphStageDocSpec extends AkkaSpec {
 
     out.expectNext(1)
 
-    switch.success(Unit)
+    switch.success(())
 
     out.expectComplete()
   }
@@ -426,7 +420,7 @@ class GraphStageDocSpec extends AkkaSpec {
               promise.success(elem)
               push(out, elem)
 
-              // replace handler with one just forwarding
+              // replace handler with one that only forwards elements
               setHandler(in, new InHandler {
                 override def onPush(): Unit = {
                   push(out, grab(in))
@@ -449,9 +443,7 @@ class GraphStageDocSpec extends AkkaSpec {
     //#materialized
 
     // tests:
-    val flow = Source(Vector(1, 2, 3))
-      .viaMat(new FirstValue)(Keep.right)
-      .to(Sink.ignore)
+    val flow = Source(Vector(1, 2, 3)).viaMat(new FirstValue)(Keep.right).to(Sink.ignore)
 
     val result: Future[Int] = flow.run()
 
@@ -482,60 +474,60 @@ class GraphStageDocSpec extends AkkaSpec {
             pull(in)
           }
 
-          setHandler(in, new InHandler {
-            override def onPush(): Unit = {
-              val elem = grab(in)
-              buffer.enqueue(elem)
-              if (downstreamWaiting) {
-                downstreamWaiting = false
-                val bufferedElem = buffer.dequeue()
-                push(out, bufferedElem)
+          setHandler(
+            in,
+            new InHandler {
+              override def onPush(): Unit = {
+                val elem = grab(in)
+                buffer.enqueue(elem)
+                if (downstreamWaiting) {
+                  downstreamWaiting = false
+                  val bufferedElem = buffer.dequeue()
+                  push(out, bufferedElem)
+                }
+                if (!bufferFull) {
+                  pull(in)
+                }
               }
-              if (!bufferFull) {
-                pull(in)
-              }
-            }
 
-            override def onUpstreamFinish(): Unit = {
-              if (buffer.nonEmpty) {
-                // emit the rest if possible
-                emitMultiple(out, buffer.toIterator)
+              override def onUpstreamFinish(): Unit = {
+                if (buffer.nonEmpty) {
+                  // emit the rest if possible
+                  emitMultiple(out, buffer.toIterator)
+                }
+                completeStage()
               }
-              completeStage()
-            }
-          })
+            })
 
-          setHandler(out, new OutHandler {
-            override def onPull(): Unit = {
-              if (buffer.isEmpty) {
-                downstreamWaiting = true
-              } else {
-                val elem = buffer.dequeue
-                push(out, elem)
+          setHandler(
+            out,
+            new OutHandler {
+              override def onPull(): Unit = {
+                if (buffer.isEmpty) {
+                  downstreamWaiting = true
+                } else {
+                  val elem = buffer.dequeue
+                  push(out, elem)
+                }
+                if (!bufferFull && !hasBeenPulled(in)) {
+                  pull(in)
+                }
               }
-              if (!bufferFull && !hasBeenPulled(in)) {
-                pull(in)
-              }
-            }
-          })
+            })
         }
 
     }
     //#detached
 
     // tests:
-    val result1 = Source(Vector(1, 2, 3))
-      .via(new TwoBuffer)
-      .runFold(Vector.empty[Int])((acc, n) => acc :+ n)
+    val result1 = Source(Vector(1, 2, 3)).via(new TwoBuffer).runFold(Vector.empty[Int])((acc, n) => acc :+ n)
 
     Await.result(result1, 3.seconds) should ===(Vector(1, 2, 3))
 
     val subscriber = TestSubscriber.manualProbe[Int]()
     val publisher = TestPublisher.probe[Int]()
     val flow2 =
-      Source.fromPublisher(publisher)
-        .via(new TwoBuffer)
-        .to(Sink.fromSubscriber(subscriber))
+      Source.fromPublisher(publisher).via(new TwoBuffer).to(Sink.fromSubscriber(subscriber))
 
     val result2 = flow2.run()
 

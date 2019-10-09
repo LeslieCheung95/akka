@@ -1,9 +1,11 @@
-/**
- * Copyright (C) 2016-2017 Lightbend Inc. <http://www.lightbend.com>
+/*
+ * Copyright (C) 2016-2019 Lightbend Inc. <https://www.lightbend.com>
  */
+
 package akka.remote.artery
 
 import java.util.concurrent.atomic.AtomicReference
+
 import akka.actor._
 import akka.testkit.ImplicitSender
 import akka.testkit.TestActors
@@ -11,6 +13,8 @@ import akka.testkit.TestProbe
 import akka.util.ByteString
 import java.nio.{ ByteBuffer, CharBuffer }
 import java.nio.charset.Charset
+
+import akka.testkit.JavaSerializable
 
 object MetadataCarryingSpy extends ExtensionId[MetadataCarryingSpy] with ExtensionIdProvider {
   override def get(system: ActorSystem): MetadataCarryingSpy = super.get(system)
@@ -42,19 +46,19 @@ class TestInstrument(system: ExtendedActorSystem) extends RemoteInstrument {
 
   override def remoteWriteMetadata(recipient: ActorRef, message: Object, sender: ActorRef, buffer: ByteBuffer): Unit =
     message match {
-      case _: MetadataCarryingSpec.Ping | ActorSelectionMessage(_: MetadataCarryingSpec.Ping, _, _) ⇒
+      case _: MetadataCarryingSpec.Ping | ActorSelectionMessage(_: MetadataCarryingSpec.Ping, _, _) =>
         val metadata = "!!!"
         buffer.putInt(metadata.length)
         encoder.encode(CharBuffer.wrap(metadata), buffer, true)
         encoder.flush(buffer)
         encoder.reset()
         MetadataCarryingSpy(system).ref.foreach(_ ! RemoteWriteMetadata(recipient, message, sender))
-      case _ ⇒
+      case _ =>
     }
 
   override def remoteReadMetadata(recipient: ActorRef, message: Object, sender: ActorRef, buffer: ByteBuffer): Unit =
     message match {
-      case _: MetadataCarryingSpec.Ping | ActorSelectionMessage(_: MetadataCarryingSpec.Ping, _, _) ⇒
+      case _: MetadataCarryingSpec.Ping | ActorSelectionMessage(_: MetadataCarryingSpec.Ping, _, _) =>
         val size = buffer.getInt
         val charBuffer = CharBuffer.allocate(size)
         decoder.decode(buffer, charBuffer, false)
@@ -62,38 +66,42 @@ class TestInstrument(system: ExtendedActorSystem) extends RemoteInstrument {
         charBuffer.flip()
         val metadata = charBuffer.toString
         MetadataCarryingSpy(system).ref.foreach(_ ! RemoteReadMetadata(recipient, message, sender, metadata))
-      case _ ⇒
+      case _ =>
     }
 
   override def remoteMessageSent(recipient: ActorRef, message: Object, sender: ActorRef, size: Int, time: Long): Unit =
     message match {
-      case _: MetadataCarryingSpec.Ping | ActorSelectionMessage(_: MetadataCarryingSpec.Ping, _, _) ⇒
+      case _: MetadataCarryingSpec.Ping | ActorSelectionMessage(_: MetadataCarryingSpec.Ping, _, _) =>
         MetadataCarryingSpy(system).ref.foreach(_ ! RemoteMessageSent(recipient, message, sender, size, time))
-      case _ ⇒
+      case _ =>
     }
 
-  override def remoteMessageReceived(recipient: ActorRef, message: Object, sender: ActorRef, size: Int, time: Long): Unit =
+  override def remoteMessageReceived(
+      recipient: ActorRef,
+      message: Object,
+      sender: ActorRef,
+      size: Int,
+      time: Long): Unit =
     message match {
-      case _: MetadataCarryingSpec.Ping | ActorSelectionMessage(_: MetadataCarryingSpec.Ping, _, _) ⇒
+      case _: MetadataCarryingSpec.Ping | ActorSelectionMessage(_: MetadataCarryingSpec.Ping, _, _) =>
         MetadataCarryingSpy(system).ref.foreach(_ ! RemoteMessageReceived(recipient, message, sender, size, time))
-      case _ ⇒
+      case _ =>
     }
 }
 
 object MetadataCarryingSpec {
-  final case class Ping(payload: ByteString = ByteString.empty)
+  final case class Ping(payload: ByteString = ByteString.empty) extends JavaSerializable
 
   class ProxyActor(local: ActorRef, remotePath: ActorPath) extends Actor {
     val remote = context.system.actorSelection(remotePath)
     override def receive = {
-      case message if sender() == local ⇒ remote ! message
-      case message                      ⇒ local ! message
+      case message if sender() == local => remote ! message
+      case message                      => local ! message
     }
   }
 }
 
-class MetadataCarryingSpec extends ArteryMultiNodeSpec(
-  """
+class MetadataCarryingSpec extends ArteryMultiNodeSpec("""
     akka {
       remote.artery.advanced {
         instruments = [ "akka.remote.artery.TestInstrument" ]
@@ -120,7 +128,7 @@ class MetadataCarryingSpec extends ArteryMultiNodeSpec(
       proxyA ! Ping()
       expectMsgType[Ping]
 
-      val writeA = instrumentProbeA.expectMsgType[RemoteWriteMetadata]
+      instrumentProbeA.expectMsgType[RemoteWriteMetadata]
       val sentA = instrumentProbeA.expectMsgType[RemoteMessageSent]
       val readB = instrumentProbeB.expectMsgType[RemoteReadMetadata]
       val recvdB = instrumentProbeB.expectMsgType[RemoteMessageReceived]
@@ -131,7 +139,7 @@ class MetadataCarryingSpec extends ArteryMultiNodeSpec(
       recvdB.time should be > 0L
 
       // for the reply
-      val writeB = instrumentProbeB.expectMsgType[RemoteWriteMetadata]
+      instrumentProbeB.expectMsgType[RemoteWriteMetadata]
       val sentB = instrumentProbeB.expectMsgType[RemoteMessageSent]
       val readA = instrumentProbeA.expectMsgType[RemoteReadMetadata]
       val recvdA = instrumentProbeA.expectMsgType[RemoteMessageReceived]

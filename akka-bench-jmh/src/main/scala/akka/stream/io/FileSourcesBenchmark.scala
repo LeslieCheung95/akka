@@ -1,20 +1,26 @@
-/**
- * Copyright (C) 2014-2017 Lightbend Inc. <http://www.lightbend.com>
+/*
+ * Copyright (C) 2014-2019 Lightbend Inc. <https://www.lightbend.com>
  */
 
 package akka.stream.io
 
-import java.nio.file.{ Files, Path }
+import java.nio.file.Files
+import java.nio.file.Path
 import java.util.concurrent.TimeUnit
-import akka.{ Done, NotUsed }
+
 import akka.actor.ActorSystem
-import akka.stream.{ Attributes, ActorMaterializer }
+import akka.stream.Attributes
+import akka.stream.IOResult
 import akka.stream.scaladsl._
 import akka.util.ByteString
+import akka.Done
+import akka.NotUsed
 import org.openjdk.jmh.annotations._
+
 import scala.concurrent.duration._
-import scala.concurrent.{ Promise, Await, Future }
-import akka.stream.IOResult
+import scala.concurrent.Await
+import scala.concurrent.Future
+import scala.concurrent.Promise
 
 /**
  * Benchmark                         (bufSize)  Mode  Cnt    Score    Error  Units
@@ -26,14 +32,14 @@ import akka.stream.IOResult
 class FileSourcesBenchmark {
 
   implicit val system = ActorSystem("file-sources-benchmark")
-  implicit val materializer = ActorMaterializer()
 
   val file: Path = {
     val line = ByteString("x" * 2048 + "\n")
 
     val f = Files.createTempFile(getClass.getName, ".bench.tmp")
 
-    val ft = Source.fromIterator(() ⇒ Iterator.continually(line))
+    val ft = Source
+      .fromIterator(() => Iterator.continually(line))
       .take(10 * 39062) // adjust as needed
       .runWith(FileIO.toPath(f))
     Await.result(ft, 30.seconds)
@@ -51,8 +57,9 @@ class FileSourcesBenchmark {
   @Setup
   def setup(): Unit = {
     fileChannelSource = FileIO.fromPath(file, bufSize)
-    fileInputStreamSource = StreamConverters.fromInputStream(() ⇒ Files.newInputStream(file), bufSize)
-    ioSourceLinesIterator = Source.fromIterator(() ⇒ scala.io.Source.fromFile(file.toFile).getLines()).map(ByteString(_))
+    fileInputStreamSource = StreamConverters.fromInputStream(() => Files.newInputStream(file), bufSize)
+    ioSourceLinesIterator =
+      Source.fromIterator(() => scala.io.Source.fromFile(file.toFile).getLines()).map(ByteString(_))
   }
 
   @TearDown

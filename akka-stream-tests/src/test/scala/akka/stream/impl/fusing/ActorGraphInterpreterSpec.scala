@@ -1,36 +1,42 @@
-/**
- * Copyright (C) 2015-2017 Lightbend Inc. <http://www.lightbend.com>
+/*
+ * Copyright (C) 2015-2019 Lightbend Inc. <https://www.lightbend.com>
  */
 
 package akka.stream.impl.fusing
 
 import java.util.concurrent.CountDownLatch
-import java.util.concurrent.atomic.AtomicInteger
 
+import akka.Done
 import akka.stream._
 import akka.stream.impl.ReactiveStreamsCompliance.SpecViolation
 import akka.stream.impl.fusing.GraphStages.SimpleLinearGraphStage
 import akka.stream.scaladsl._
-import akka.stream.stage.{ GraphStage, GraphStageLogic, InHandler, OutHandler }
+import akka.stream.stage.GraphStage
+import akka.stream.stage.GraphStageLogic
+import akka.stream.stage.InHandler
+import akka.stream.stage.OutHandler
+import akka.stream.testkit.StreamSpec
+import akka.stream.testkit.TestPublisher
+import akka.stream.testkit.TestSubscriber
 import akka.stream.testkit.Utils._
-import akka.stream.testkit.{ StreamSpec, TestPublisher, TestSubscriber }
-import akka.testkit.{ EventFilter, TestLatch }
+import akka.stream.testkit.scaladsl.StreamTestKit._
+import akka.testkit.EventFilter
+import akka.testkit.TestLatch
+import org.reactivestreams.Publisher
+import org.reactivestreams.Subscriber
+import org.reactivestreams.Subscription
 
 import scala.concurrent.Await
+import scala.concurrent.Promise
 import scala.concurrent.duration._
-import org.reactivestreams.{ Publisher, Subscriber, Subscription }
 
 class ActorGraphInterpreterSpec extends StreamSpec {
-  implicit val materializer = ActorMaterializer()
-
   "ActorGraphInterpreter" must {
 
     "be able to interpret a simple identity graph stage" in assertAllStagesStopped {
       val identity = GraphStages.identity[Int]
 
-      Await.result(
-        Source(1 to 100).via(identity).grouped(200).runWith(Sink.head),
-        3.seconds) should ===(1 to 100)
+      Await.result(Source(1 to 100).via(identity).grouped(200).runWith(Sink.head), 3.seconds) should ===(1 to 100)
 
     }
 
@@ -38,12 +44,7 @@ class ActorGraphInterpreterSpec extends StreamSpec {
       val identity = GraphStages.identity[Int]
 
       Await.result(
-        Source(1 to 100)
-          .via(identity)
-          .via(identity)
-          .via(identity)
-          .grouped(200)
-          .runWith(Sink.head),
+        Source(1 to 100).via(identity).via(identity).via(identity).grouped(200).runWith(Sink.head),
         3.seconds) should ===(1 to 100)
     }
 
@@ -68,23 +69,25 @@ class ActorGraphInterpreterSpec extends StreamSpec {
 
           setHandler(out1, new OutHandler {
             override def onPull(): Unit = pull(in1)
-            override def onDownstreamFinish(): Unit = cancel(in1)
+            override def onDownstreamFinish(cause: Throwable): Unit = cancel(in1, cause)
           })
 
           setHandler(out2, new OutHandler {
             override def onPull(): Unit = pull(in2)
-            override def onDownstreamFinish(): Unit = cancel(in2)
+            override def onDownstreamFinish(cause: Throwable): Unit = cancel(in2, cause)
           })
         }
 
         override def toString = "IdentityBidi"
       }
 
-      val identity = BidiFlow.fromGraph(identityBidi).join(Flow[Int].map { x ⇒ x })
+      val identity = BidiFlow
+        .fromGraph(identityBidi)
+        .join(Flow[Int].map { x =>
+          x
+        })
 
-      Await.result(
-        Source(1 to 10).via(identity).grouped(100).runWith(Sink.head),
-        3.seconds) should ===(1 to 10)
+      Await.result(Source(1 to 10).via(identity).grouped(100).runWith(Sink.head), 3.seconds) should ===(1 to 10)
 
     }
 
@@ -112,13 +115,13 @@ class ActorGraphInterpreterSpec extends StreamSpec {
           setHandler(out1, new OutHandler {
             override def onPull(): Unit = pull(in1)
 
-            override def onDownstreamFinish(): Unit = cancel(in1)
+            override def onDownstreamFinish(cause: Throwable): Unit = cancel(in1, cause)
           })
 
           setHandler(out2, new OutHandler {
             override def onPull(): Unit = pull(in2)
 
-            override def onDownstreamFinish(): Unit = cancel(in2)
+            override def onDownstreamFinish(cause: Throwable): Unit = cancel(in2, cause)
           })
         }
 
@@ -126,11 +129,14 @@ class ActorGraphInterpreterSpec extends StreamSpec {
       }
 
       val identityBidiF = BidiFlow.fromGraph(identityBidi)
-      val identity = (identityBidiF atop identityBidiF atop identityBidiF).join(Flow[Int].map { x ⇒ x })
+      val identity = identityBidiF
+        .atop(identityBidiF)
+        .atop(identityBidiF)
+        .join(Flow[Int].map { x =>
+          x
+        })
 
-      Await.result(
-        Source(1 to 10).via(identity).grouped(100).runWith(Sink.head),
-        3.seconds) should ===(1 to 10)
+      Await.result(Source(1 to 10).via(identity).grouped(100).runWith(Sink.head), 3.seconds) should ===(1 to 10)
 
     }
 
@@ -158,13 +164,13 @@ class ActorGraphInterpreterSpec extends StreamSpec {
           setHandler(out1, new OutHandler {
             override def onPull(): Unit = pull(in1)
 
-            override def onDownstreamFinish(): Unit = cancel(in1)
+            override def onDownstreamFinish(cause: Throwable): Unit = cancel(in1, cause)
           })
 
           setHandler(out2, new OutHandler {
             override def onPull(): Unit = pull(in2)
 
-            override def onDownstreamFinish(): Unit = cancel(in2)
+            override def onDownstreamFinish(cause: Throwable): Unit = cancel(in2, cause)
           })
         }
 
@@ -172,11 +178,14 @@ class ActorGraphInterpreterSpec extends StreamSpec {
       }
 
       val identityBidiF = BidiFlow.fromGraph(identityBidi)
-      val identity = (identityBidiF atop identityBidiF atop identityBidiF).join(Flow[Int].map { x ⇒ x })
+      val identity = identityBidiF
+        .atop(identityBidiF)
+        .atop(identityBidiF)
+        .join(Flow[Int].map { x =>
+          x
+        })
 
-      Await.result(
-        Source(1 to 10).via(identity).grouped(100).runWith(Sink.head),
-        3.seconds) should ===(1 to 10)
+      Await.result(Source(1 to 10).via(identity).grouped(100).runWith(Sink.head), 3.seconds) should ===(1 to 10)
 
     }
 
@@ -207,13 +216,13 @@ class ActorGraphInterpreterSpec extends StreamSpec {
           setHandler(out1, new OutHandler {
             override def onPull(): Unit = pull(in2)
 
-            override def onDownstreamFinish(): Unit = cancel(in2)
+            override def onDownstreamFinish(cause: Throwable): Unit = cancel(in2, cause)
           })
 
           setHandler(out2, new OutHandler {
             override def onPull(): Unit = pull(in1)
 
-            override def onDownstreamFinish(): Unit = cancel(in1)
+            override def onDownstreamFinish(cause: Throwable): Unit = cancel(in1, cause)
           })
         }
 
@@ -222,17 +231,19 @@ class ActorGraphInterpreterSpec extends StreamSpec {
 
       val takeAll = Flow[Int].grouped(200).toMat(Sink.head)(Keep.right)
 
-      val (f1, f2) = RunnableGraph.fromGraph(GraphDSL.create(takeAll, takeAll)(Keep.both) { implicit b ⇒ (out1, out2) ⇒
-        import GraphDSL.Implicits._
-        val bidi = b.add(rotatedBidi)
+      val (f1, f2) = RunnableGraph
+        .fromGraph(GraphDSL.create(takeAll, takeAll)(Keep.both) { implicit b => (out1, out2) =>
+          import GraphDSL.Implicits._
+          val bidi = b.add(rotatedBidi)
 
-        Source(1 to 10) ~> bidi.in1
-        out2 <~ bidi.out2
+          Source(1 to 10) ~> bidi.in1
+          out2 <~ bidi.out2
 
-        bidi.in2 <~ Source(1 to 100)
-        bidi.out1 ~> out1
-        ClosedShape
-      }).run()
+          bidi.in2 <~ Source(1 to 100)
+          bidi.out1 ~> out1
+          ClosedShape
+        })
+        .run()
 
       Await.result(f1, 3.seconds) should ===(1 to 100)
       Await.result(f2, 3.seconds) should ===(1 to 10)
@@ -263,10 +274,6 @@ class ActorGraphInterpreterSpec extends StreamSpec {
 
     "be able to properly handle case where a stage fails before subscription happens" in assertAllStagesStopped {
 
-      // Fuzzing needs to be off, so that the failure can propagate to the output boundary before the ExposedPublisher
-      // message.
-      val noFuzzMat = ActorMaterializer(ActorMaterializerSettings(system).withFuzzing(false))
-
       val te = TE("Test failure in preStart")
 
       val evilLatch = new CountDownLatch(1)
@@ -286,10 +293,8 @@ class ActorGraphInterpreterSpec extends StreamSpec {
        */
 
       val failyStage = new GraphStage[FanOutShape2[Int, Int, Int]] {
-        override val shape: FanOutShape2[Int, Int, Int] = new FanOutShape2(
-          Inlet[Int]("test.in"),
-          Outlet[Int]("test.out0"),
-          Outlet[Int]("test.out1"))
+        override val shape: FanOutShape2[Int, Int, Int] =
+          new FanOutShape2(Inlet[Int]("test.in"), Outlet[Int]("test.out0"), Outlet[Int]("test.out1"))
 
         override def createLogic(inheritedAttributes: Attributes): GraphStageLogic = new GraphStageLogic(shape) {
 
@@ -310,16 +315,21 @@ class ActorGraphInterpreterSpec extends StreamSpec {
 
       val upstream = TestPublisher.probe[Int]()
 
-      RunnableGraph.fromGraph(GraphDSL.create() { implicit b ⇒
-        import GraphDSL.Implicits._
-        val faily = b.add(failyStage)
+      RunnableGraph
+        .fromGraph(GraphDSL.create() { implicit b =>
+          import GraphDSL.Implicits._
+          val faily = b.add(failyStage)
 
-        Source.fromPublisher(upstream) ~> faily.in
-        faily.out0 ~> Sink.fromSubscriber(downstream0)
-        faily.out1 ~> Sink.fromSubscriber(downstream1)
+          Source.fromPublisher(upstream) ~> faily.in
+          faily.out0 ~> Sink.fromSubscriber(downstream0)
+          faily.out1 ~> Sink.fromSubscriber(downstream1)
 
-        ClosedShape
-      }).run()(noFuzzMat)
+          ClosedShape
+        })
+        // Fuzzing needs to be off, so that the failure can propagate to the output boundary before the ExposedPublisher
+        // message.
+        .withAttributes(ActorAttributes.fuzzingMode(false))
+        .run()
 
       evilLatch.countDown()
       downstream0.expectSubscriptionAndError(te)
@@ -348,9 +358,8 @@ class ActorGraphInterpreterSpec extends StreamSpec {
       val upstream = TestPublisher.probe[Int]()
       val downstream = TestSubscriber.probe[Int]()
 
-      Source.combine(
-        Source.fromPublisher(filthyPublisher),
-        Source.fromPublisher(upstream))(count ⇒ Merge(count))
+      Source
+        .combine(Source.fromPublisher(filthyPublisher), Source.fromPublisher(upstream))(count => Merge(count))
         .runWith(Sink.fromSubscriber(downstream))
 
       upstream.ensureSubscription()
@@ -362,7 +371,7 @@ class ActorGraphInterpreterSpec extends StreamSpec {
       ise shouldBe an[IllegalStateException]
       ise.getCause shouldBe a[SpecViolation]
       ise.getCause.getCause shouldBe a[TE]
-      ise.getCause.getCause should (have message ("violating your spec"))
+      ise.getCause.getCause should (have.message("violating your spec"))
     }
 
     "be able to handle Subscriber spec violations without leaking" in assertAllStagesStopped {
@@ -376,7 +385,8 @@ class ActorGraphInterpreterSpec extends StreamSpec {
       val upstream = TestPublisher.probe[Int]()
       val downstream = TestSubscriber.probe[Int]()
 
-      Source.fromPublisher(upstream)
+      Source
+        .fromPublisher(upstream)
         .alsoTo(Sink.fromSubscriber(downstream))
         .runWith(Sink.fromSubscriber(filthySubscriber))
 
@@ -387,13 +397,13 @@ class ActorGraphInterpreterSpec extends StreamSpec {
       ise shouldBe an[IllegalStateException]
       ise.getCause shouldBe a[SpecViolation]
       ise.getCause.getCause shouldBe a[TE]
-      ise.getCause.getCause should (have message ("violating your spec"))
+      ise.getCause.getCause should (have.message("violating your spec"))
 
       upstream.expectCancellation()
     }
 
     "trigger postStop in all stages when abruptly terminated (and no upstream boundaries)" in {
-      val mat = ActorMaterializer()
+      val mat = Materializer(system)
       val gotStop = TestLatch(1)
 
       object PostStopSnitchFlow extends SimpleLinearGraphStage[String] {
@@ -413,10 +423,7 @@ class ActorGraphInterpreterSpec extends StreamSpec {
 
       val downstream = TestSubscriber.probe[String]()
 
-      Source.repeat("whatever")
-        .via(PostStopSnitchFlow)
-        .to(Sink.fromSubscriber(downstream))
-        .run()(mat)
+      Source.repeat("whatever").via(PostStopSnitchFlow).to(Sink.fromSubscriber(downstream)).run()(mat)
 
       downstream.requestNext()
 
@@ -427,6 +434,29 @@ class ActorGraphInterpreterSpec extends StreamSpec {
       propagatedError shouldBe an[AbruptTerminationException]
     }
 
+    // reproduces #24719
+    "not allow a second subscriber" in {
+      val done = Promise[Done]()
+      Source
+        .single(Source.fromPublisher(new Publisher[Int] {
+          def subscribe(s: Subscriber[_ >: Int]): Unit = {
+            s.onSubscribe(new Subscription {
+              def cancel(): Unit = ()
+              def request(n: Long): Unit = ()
+            })
+            // reactive streams 2.5 - must cancel if called with onSubscribe when already have one running
+            s.onSubscribe(new Subscription {
+              def cancel(): Unit =
+                done.trySuccess(Done)
+              def request(n: Long): Unit =
+                done.tryFailure(new IllegalStateException("request should not have been invoked"))
+            })
+          }
+        }))
+        .flatMapConcat(identity)
+        .runWith(Sink.ignore)
+      done.future.futureValue // would throw on failure
+    }
+
   }
 }
-

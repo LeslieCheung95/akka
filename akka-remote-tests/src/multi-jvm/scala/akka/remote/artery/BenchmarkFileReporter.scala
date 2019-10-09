@@ -1,6 +1,7 @@
-/**
- * Copyright (C) 2016-2017 Lightbend Inc. <http://www.lightbend.com>
+/*
+ * Copyright (C) 2016-2019 Lightbend Inc. <https://www.lightbend.com>
  */
+
 package akka.remote.artery
 
 import java.io.File
@@ -19,6 +20,7 @@ import scala.util.Try
  * results can be understood later.
  */
 trait BenchmarkFileReporter {
+  def testName: String
   def reportResults(result: String): Unit
   def close(): Unit
 }
@@ -31,14 +33,16 @@ object BenchmarkFileReporter {
 
   val formatter = DateTimeFormatter.ofPattern("yyyy-MM-dd-HH-mm-ss")
 
-  def apply(testName: String, system: ActorSystem): BenchmarkFileReporter =
+  def apply(test: String, system: ActorSystem): BenchmarkFileReporter =
     new BenchmarkFileReporter {
+      override val testName = test
+
       val gitCommit = {
         import sys.process._
         Try("git describe".!!.trim).getOrElse("[unknown]")
       }
       val testResultFile: File = {
-        val timestamp = formatter.format(LocalDateTime.ofInstant(Instant.now(), ZoneId.systemDefault()));
+        val timestamp = formatter.format(LocalDateTime.ofInstant(Instant.now(), ZoneId.systemDefault()))
         val fileName = s"$timestamp-Artery-$testName-$gitCommit-results.txt"
         new File(targetDirectory, fileName)
       }
@@ -56,14 +60,13 @@ object BenchmarkFileReporter {
           "akka.test.LatencySpec.real-message",
           "akka.remote.artery.enabled",
           "akka.remote.artery.advanced.inbound-lanes",
-          "akka.remote.artery.advanced.idle-cpu-level",
           "akka.remote.artery.advanced.buffer-pool-size",
-          "akka.remote.artery.advanced.embedded-media-driver",
+          "akka.remote.artery.advanced.aeron.idle-cpu-level",
+          "akka.remote.artery.advanced.aeron.embedded-media-driver",
           "akka.remote.default-remote-dispatcher.throughput",
           "akka.remote.default-remote-dispatcher.fork-join-executor.parallelism-factor",
           "akka.remote.default-remote-dispatcher.fork-join-executor.parallelism-min",
-          "akka.remote.default-remote-dispatcher.fork-join-executor.parallelism-max"
-        )
+          "akka.remote.default-remote-dispatcher.fork-join-executor.parallelism-max")
       settingsToReport.foreach(reportSetting)
 
       def reportResults(result: String): Unit = synchronized {

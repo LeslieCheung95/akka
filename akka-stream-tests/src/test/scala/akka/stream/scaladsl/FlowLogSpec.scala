@@ -1,6 +1,7 @@
-/**
- * Copyright (C) 2014-2017 Lightbend Inc. <http://www.lightbend.com>
+/*
+ * Copyright (C) 2014-2019 Lightbend Inc. <https://www.lightbend.com>
  */
+
 package akka.stream.scaladsl
 
 import akka.NotUsed
@@ -8,20 +9,17 @@ import akka.event.{ DummyClassForStringSources, Logging }
 import akka.stream.ActorAttributes._
 import akka.stream.Attributes.LogLevels
 import akka.stream.Supervision._
-import akka.stream.testkit.{ StreamSpec, ScriptedTest }
+import akka.stream.testkit.{ ScriptedTest, StreamSpec }
 import akka.stream._
-import akka.testkit.{ AkkaSpec, TestProbe }
+import akka.testkit.TestProbe
 
 import scala.concurrent.duration._
 import scala.concurrent.Await
 import scala.util.control.NoStackTrace
 
 class FlowLogSpec extends StreamSpec("""
-     akka.loglevel = DEBUG
-     akka.actor.serialize-messages = off
+     akka.loglevel = DEBUG # test verifies logging
      """) with ScriptedTest {
-
-  implicit val mat: Materializer = ActorMaterializer()
 
   val logProbe = {
     val p = TestProbe()
@@ -31,7 +29,7 @@ class FlowLogSpec extends StreamSpec("""
 
   "A Log" must {
 
-    val supervisorPath = ActorMaterializerHelper.downcast(mat).supervisor.path
+    val supervisorPath = SystemMaterializer(system).materializer.supervisor.path
     val LogSrc = s"akka.stream.Log($supervisorPath)"
     val LogClazz = classOf[Materializer]
 
@@ -47,16 +45,11 @@ class FlowLogSpec extends StreamSpec("""
       }
 
       "allow disabling element logging" in {
-        val disableElementLogging = Attributes.logLevels(
-          onElement = LogLevels.Off,
-          onFinish = Logging.DebugLevel,
-          onFailure = Logging.DebugLevel)
+        val disableElementLogging =
+          Attributes.logLevels(onElement = LogLevels.Off, onFinish = Logging.DebugLevel, onFailure = Logging.DebugLevel)
 
         val debugging = Flow[Int].log("my-debug")
-        Source(1 to 2)
-          .via(debugging)
-          .withAttributes(disableElementLogging)
-          .runWith(Sink.ignore)
+        Source(1 to 2).via(debugging).withAttributes(disableElementLogging).runWith(Sink.ignore)
 
         logProbe.expectMsg(Logging.Debug(LogSrc, LogClazz, "[my-debug] Upstream finished."))
       }
@@ -67,23 +60,24 @@ class FlowLogSpec extends StreamSpec("""
       "debug each element" in {
         val log = Logging(system, "com.example.ImportantLogger")
 
-        val debugging: javadsl.Flow[Integer, Integer, NotUsed] = javadsl.Flow.of(classOf[Integer])
+        val debugging: javadsl.Flow[Integer, Integer, NotUsed] = javadsl.Flow
+          .of(classOf[Integer])
           .log("log-1")
           .log("log-2", new akka.japi.function.Function[Integer, Integer] { def apply(i: Integer) = i })
           .log("log-3", new akka.japi.function.Function[Integer, Integer] { def apply(i: Integer) = i }, log)
           .log("log-4", log)
 
-        javadsl.Source.single[Integer](1).via(debugging).runWith(javadsl.Sink.ignore(), mat)
+        javadsl.Source.single[Integer](1).via(debugging).runWith(javadsl.Sink.ignore[Integer](), system)
 
         var counter = 0
         var finishCounter = 0
         import scala.concurrent.duration._
         logProbe.fishForMessage(3.seconds) {
-          case Logging.Debug(_, _, msg: String) if msg contains "Element: 1" ⇒
+          case Logging.Debug(_, _, msg: String) if msg contains "Element: 1" =>
             counter += 1
             counter == 4 && finishCounter == 4
 
-          case Logging.Debug(_, _, msg: String) if msg contains "Upstream finished" ⇒
+          case Logging.Debug(_, _, msg: String) if msg contains "Upstream finished" =>
             finishCounter += 1
             counter == 4 && finishCounter == 4
         }
@@ -130,29 +124,28 @@ class FlowLogSpec extends StreamSpec("""
           onFinish = Logging.InfoLevel,
           onFailure = Logging.DebugLevel)
 
-        Source.single(42)
+        Source
+          .single(42)
           .log("flow-6")
-          .withAttributes(Attributes.logLevels(
-            onElement = Logging.WarningLevel,
-            onFinish = Logging.InfoLevel,
-            onFailure = Logging.DebugLevel))
+          .withAttributes(Attributes
+            .logLevels(onElement = Logging.WarningLevel, onFinish = Logging.InfoLevel, onFailure = Logging.DebugLevel))
           .runWith(Sink.ignore)
 
         logProbe.expectMsg(Logging.Warning(LogSrc, LogClazz, "[flow-6] Element: 42"))
         logProbe.expectMsg(Logging.Info(LogSrc, LogClazz, "[flow-6] Upstream finished."))
 
         val cause = new TestException
-        Source.failed(cause)
-          .log("flow-6e")
-          .withAttributes(logAttrs)
-          .runWith(Sink.ignore)
-        logProbe.expectMsg(Logging.Debug(LogSrc, LogClazz, "[flow-6e] Upstream failed, cause: FlowLogSpec$TestException: Boom!"))
+        Source.failed(cause).log("flow-6e").withAttributes(logAttrs).runWith(Sink.ignore)
+        logProbe.expectMsg(
+          Logging.Debug(LogSrc, LogClazz, "[flow-6e] Upstream failed, cause: FlowLogSpec$TestException: Boom!"))
       }
 
       "follow supervision strategy when exception thrown" in {
         val ex = new RuntimeException() with NoStackTrace
-        val future = Source(1 to 5).log("hi", n ⇒ throw ex)
-          .withAttributes(supervisionStrategy(resumingDecider)).runWith(Sink.fold(0)(_ + _))
+        val future = Source(1 to 5)
+          .log("hi", _ => throw ex)
+          .withAttributes(supervisionStrategy(resumingDecider))
+          .runWith(Sink.fold(0)(_ + _))
         Await.result(future, 500.millis) shouldEqual 0
       }
     }
@@ -161,21 +154,22 @@ class FlowLogSpec extends StreamSpec("""
       "debug each element" in {
         val log = Logging(system, "com.example.ImportantLogger")
 
-        javadsl.Source.single[Integer](1)
+        javadsl.Source
+          .single[Integer](1)
           .log("log-1")
           .log("log-2", new akka.japi.function.Function[Integer, Integer] { def apply(i: Integer) = i })
           .log("log-3", new akka.japi.function.Function[Integer, Integer] { def apply(i: Integer) = i }, log)
           .log("log-4", log)
-          .runWith(javadsl.Sink.ignore(), mat)
+          .runWith(javadsl.Sink.ignore[Integer](), system)
 
         var counter = 1
         import scala.concurrent.duration._
         logProbe.fishForMessage(3.seconds) {
-          case Logging.Debug(_, _, msg: String) if msg contains "Element: 1" ⇒
+          case Logging.Debug(_, _, msg: String) if msg contains "Element: 1" =>
             counter += 1
             counter == 4
 
-          case Logging.Debug(_, _, msg: String) if msg contains "Upstream finished" ⇒
+          case Logging.Debug(_, _, msg: String) if msg contains "Upstream finished" =>
             false
         }
       }

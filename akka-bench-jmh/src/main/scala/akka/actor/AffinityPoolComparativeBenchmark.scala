@@ -1,6 +1,7 @@
-/**
- * Copyright (C) 2014-2017 Lightbend Inc. <http://www.lightbend.com>
+/*
+ * Copyright (C) 2014-2019 Lightbend Inc. <https://www.lightbend.com>
  */
+
 package akka.actor
 
 import java.util.concurrent.TimeUnit
@@ -44,8 +45,9 @@ class AffinityPoolComparativeBenchmark {
         s"""default-mailbox.mailbox-type = "${classOf[akka.dispatch.SingleConsumerOnlyUnboundedMailbox].getName}""""
     }
 
-    system = ActorSystem("AffinityPoolComparativeBenchmark", ConfigFactory.parseString(
-      s"""| akka {
+    system = ActorSystem(
+      "AffinityPoolComparativeBenchmark",
+      ConfigFactory.parseString(s"""| akka {
           |   log-dead-letters = off
           |   actor {
           |     default-fj-dispatcher {
@@ -81,8 +83,7 @@ class AffinityPoolComparativeBenchmark {
           |     $mailboxConf
           |   }
           | }
-      """.stripMargin
-    ))
+      """.stripMargin))
   }
 
   @TearDown(Level.Trial)

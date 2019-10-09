@@ -1,21 +1,21 @@
-/**
- * Copyright (C) 2009-2017 Lightbend Inc. <http://www.lightbend.com>
+/*
+ * Copyright (C) 2009-2019 Lightbend Inc. <https://www.lightbend.com>
  */
+
 package akka.remote.artery
 
 import akka.testkit._
 import akka.actor._
 import com.typesafe.config.ConfigFactory
 import akka.actor.RootActorPath
+
 import scala.concurrent.duration._
 import akka.testkit.SocketUtil
-import akka.event.Logging.Warning
-import akka.remote.QuarantinedEvent
 import akka.remote.RARP
-import akka.remote.RemoteActorRef
+import com.github.ghik.silencer.silent
 
 object RemoteDeathWatchSpec {
-  val otherPort = SocketUtil.temporaryLocalPort(udp = true)
+  val otherPort = ArteryMultiNodeSpec.freePort(ConfigFactory.load())
 
   val config = ConfigFactory.parseString(s"""
     akka {
@@ -25,16 +25,31 @@ object RemoteDeathWatchSpec {
                 /watchers.remote = "akka://other@localhost:$otherPort"
             }
         }
-        remote.watch-failure-detector.acceptable-heartbeat-pause = 3s
+        test.filter-leeway = 10s
+        remote.use-unsafe-remote-features-outside-cluster = on
+        remote.watch-failure-detector.acceptable-heartbeat-pause = 2s
+
+        # reduce handshake timeout for quicker test of unknownhost, but
+        # must still be longer than failure detection
+        remote.artery.advanced {
+          handshake-timeout = 10 s
+          aeron.image-liveness-timeout = 9 seconds
+        }
     }
+    # test is using Java serialization and not priority to rewrite
+    akka.actor.allow-java-serialization = on
+    akka.actor.warn-about-java-serializer-usage = off
     """).withFallback(ArterySpecSupport.defaultConfig)
 }
 
-class RemoteDeathWatchSpec extends ArteryMultiNodeSpec(RemoteDeathWatchSpec.config) with ImplicitSender with DefaultTimeout with DeathWatchSpec {
+class RemoteDeathWatchSpec
+    extends ArteryMultiNodeSpec(RemoteDeathWatchSpec.config)
+    with ImplicitSender
+    with DefaultTimeout
+    with DeathWatchSpec {
   import RemoteDeathWatchSpec._
 
-  system.eventStream.publish(TestEvent.Mute(
-    EventFilter[io.aeron.exceptions.RegistrationException]()))
+  system.eventStream.publish(TestEvent.Mute(EventFilter[io.aeron.exceptions.RegistrationException]()))
 
   val other = newRemoteSystem(name = Some("other"), extraConfig = Some(s"akka.remote.artery.canonical.port=$otherPort"))
 
@@ -55,8 +70,9 @@ class RemoteDeathWatchSpec extends ArteryMultiNodeSpec(RemoteDeathWatchSpec.conf
 
         system.actorOf(Props(new Actor {
           context.watch(ref)
+
           def receive = {
-            case Terminated(r) ⇒ testActor ! r
+            case Terminated(r) => testActor ! r
           }
         }).withDeploy(Deploy.local))
 
@@ -67,10 +83,14 @@ class RemoteDeathWatchSpec extends ArteryMultiNodeSpec(RemoteDeathWatchSpec.conf
 
   "receive Terminated when watched node is unknown host" in {
     val path = RootActorPath(Address("akka", system.name, "unknownhost", 2552)) / "user" / "subject"
+
     system.actorOf(Props(new Actor {
-      context.watch(context.actorFor(path))
+      @silent
+      val watchee = RARP(context.system).provider.resolveActorRef(path)
+      context.watch(watchee)
+
       def receive = {
-        case t: Terminated ⇒ testActor ! t.actor.path
+        case t: Terminated => testActor ! t.actor.path
       }
     }).withDeploy(Deploy.local), name = "observer2")
 
@@ -78,9 +98,13 @@ class RemoteDeathWatchSpec extends ArteryMultiNodeSpec(RemoteDeathWatchSpec.conf
   }
 
   "receive ActorIdentity(None) when identified node is unknown host" in {
+    // TODO There is a timing difference between Aeron and TCP. AeronSink will throw exception
+    // immediately in constructor from aeron.addPublication when UnknownHostException. That will trigger
+    // this immediately. With TCP it will trigger after handshake timeout. Can we see the UnknownHostException
+    // reason somehow and fail the stream immediately for that case?
     val path = RootActorPath(Address("akka", system.name, "unknownhost2", 2552)) / "user" / "subject"
-    system.actorSelection(path) ! Identify(path)
-    expectMsg(60.seconds, ActorIdentity(path, None))
+    system.actorSelection(path) ! Identify(path.toString)
+    expectMsg(60.seconds, ActorIdentity(path.toString, None))
   }
 
 }

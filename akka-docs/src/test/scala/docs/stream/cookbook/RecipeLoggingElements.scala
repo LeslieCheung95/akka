@@ -1,3 +1,7 @@
+/*
+ * Copyright (C) 2018-2019 Lightbend Inc. <https://www.lightbend.com>
+ */
+
 package docs.stream.cookbook
 
 import akka.event.Logging
@@ -16,7 +20,9 @@ class RecipeLoggingElements extends RecipeSpec {
       val mySource = Source(List("1", "2", "3"))
 
       //#println-debug
-      val loggedSource = mySource.map { elem => println(elem); elem }
+      val loggedSource = mySource.map { elem =>
+        println(elem); elem
+      }
       //#println-debug
 
       loggedSource.runWith(Sink.ignore)
@@ -29,8 +35,10 @@ class RecipeLoggingElements extends RecipeSpec {
 
       //#log-custom
       // customise log levels
-      mySource.log("before-map")
-        .withAttributes(Attributes.logLevels(onElement = Logging.WarningLevel))
+      mySource
+        .log("before-map")
+        .withAttributes(Attributes
+          .logLevels(onElement = Logging.WarningLevel, onFinish = Logging.InfoLevel, onFailure = Logging.DebugLevel))
         .map(analyse)
 
       // or provide custom logging adapter
@@ -42,9 +50,16 @@ class RecipeLoggingElements extends RecipeSpec {
       EventFilter.debug(start = "[custom] Element: ").intercept {
         loggedSource.runWith(Sink.ignore)
       }
-
     }
 
+    "use log() for error logging" in {
+      //#log-error
+      Source(-5 to 5)
+        .map(1 / _) //throwing ArithmeticException: / by zero
+        .log("error logging")
+        .runWith(Sink.ignore)
+      //#log-error
+    }
   }
 
 }

@@ -1,17 +1,17 @@
-/**
- * Copyright (C) 2015-2017 Lightbend Inc. <http://www.lightbend.com>
+/*
+ * Copyright (C) 2015-2019 Lightbend Inc. <https://www.lightbend.com>
  */
-package akka.persistence.query.journal.leveldb
 
-import scala.concurrent.duration._
+package akka.persistence.query.journal.leveldb
 
 import akka.persistence.query.PersistenceQuery
 import akka.persistence.query.journal.leveldb.scaladsl.LeveldbReadJournal
 import akka.persistence.query.scaladsl.PersistenceIdsQuery
-import akka.stream.ActorMaterializer
 import akka.stream.testkit.scaladsl.TestSink
 import akka.testkit.AkkaSpec
 import akka.testkit.ImplicitSender
+
+import scala.concurrent.duration._
 
 object AllPersistenceIdsSpec {
   val config = """
@@ -19,13 +19,13 @@ object AllPersistenceIdsSpec {
     akka.persistence.journal.plugin = "akka.persistence.journal.leveldb"
     akka.persistence.journal.leveldb.dir = "target/journal-AllPersistenceIdsSpec"
     akka.test.single-expect-default = 10s
+    # test is using Java serialization and not priority to rewrite
+    akka.actor.allow-java-serialization = on
+    akka.actor.warn-about-java-serializer-usage = off
     """
 }
 
-class AllPersistenceIdsSpec extends AkkaSpec(AllPersistenceIdsSpec.config)
-  with Cleanup with ImplicitSender {
-
-  implicit val mat = ActorMaterializer()(system)
+class AllPersistenceIdsSpec extends AkkaSpec(AllPersistenceIdsSpec.config) with Cleanup with ImplicitSender {
 
   val queries = PersistenceQuery(system).readJournalFor[LeveldbReadJournal](LeveldbReadJournal.Identifier)
 
@@ -46,9 +46,7 @@ class AllPersistenceIdsSpec extends AkkaSpec(AllPersistenceIdsSpec.config)
       val src = queries.currentPersistenceIds()
       val probe = src.runWith(TestSink.probe[String])
       probe.within(10.seconds) {
-        probe.request(5)
-          .expectNextUnordered("a", "b", "c")
-          .expectComplete()
+        probe.request(5).expectNextUnordered("a", "b", "c").expectComplete()
       }
     }
 
@@ -60,14 +58,13 @@ class AllPersistenceIdsSpec extends AkkaSpec(AllPersistenceIdsSpec.config)
       val src = queries.persistenceIds()
       val probe = src.runWith(TestSink.probe[String])
       probe.within(10.seconds) {
-        probe.request(5)
-          .expectNextUnorderedN(List("a", "b", "c", "d"))
+        probe.request(5).expectNextUnorderedN(List("a", "b", "c", "d"))
 
         system.actorOf(TestActor.props("e")) ! "e1"
         probe.expectNext("e")
 
         val more = (1 to 100).map("f" + _)
-        more.foreach { p ⇒
+        more.foreach { p =>
           system.actorOf(TestActor.props(p)) ! p
         }
 

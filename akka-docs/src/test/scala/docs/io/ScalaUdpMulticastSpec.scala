@@ -1,5 +1,5 @@
-/**
- * Copyright (C) 2009-2017 Lightbend Inc. <http://www.lightbend.com>
+/*
+ * Copyright (C) 2009-2019 Lightbend Inc. <https://www.lightbend.com>
  */
 
 package docs.io
@@ -11,19 +11,23 @@ import akka.actor.{ ActorSystem, Props }
 import akka.io.Udp
 import akka.testkit.TestKit
 import org.scalatest.{ BeforeAndAfter, WordSpecLike }
-import scala.collection.JavaConversions.enumerationAsScalaIterator
 import org.scalatest.BeforeAndAfterAll
 import akka.testkit.SocketUtil
+import akka.util.ccompat.JavaConverters._
 
-class ScalaUdpMulticastSpec extends TestKit(ActorSystem("ScalaUdpMulticastSpec")) with WordSpecLike with BeforeAndAfterAll {
+class ScalaUdpMulticastSpec
+    extends TestKit(ActorSystem("ScalaUdpMulticastSpec"))
+    with WordSpecLike
+    with BeforeAndAfterAll {
 
   "listener" should {
     "send message back to sink" in {
       val ipv6ifaces =
-        NetworkInterface.getNetworkInterfaces.toSeq.filter(iface =>
-          iface.supportsMulticast &&
+        NetworkInterface.getNetworkInterfaces.asScala.toSeq.filter(
+          iface =>
+            iface.supportsMulticast &&
             iface.isUp &&
-            iface.getInetAddresses.exists(_.isInstanceOf[Inet6Address]))
+            iface.getInetAddresses.asScala.exists(_.isInstanceOf[Inet6Address]))
 
       if (ipv6ifaces.isEmpty) {
         // IPv6 not supported for any interface on this platform
@@ -70,4 +74,3 @@ class ScalaUdpMulticastSpec extends TestKit(ActorSystem("ScalaUdpMulticastSpec")
   }
 
 }
-
